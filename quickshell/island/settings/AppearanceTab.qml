@@ -8,7 +8,7 @@ TabPage {
     SettingRow {
         path: ["colors", "bgAlpha"]
         title: "Background opacity"
-        description: "Blur comes from the island layer rule in your Hyprland config."
+        description: "Blur behind it comes from the island layer rule in your Hyprland config."
         type: "real"
         min: 0.3
         max: 1
@@ -35,6 +35,15 @@ TabPage {
         min: 18
         max: 40
         unit: "px"
+    }
+    SettingRow {
+        path: ["sizes", "hoverScale"]
+        title: "Hover size"
+        description: "How big the island grows when you hover over it, relative to its design size."
+        type: "real"
+        min: 0.6
+        max: 1.2
+        step: 0.02
     }
     SettingRow {
         path: ["sizes", "expandedScale"]

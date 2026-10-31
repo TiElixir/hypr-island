@@ -16,12 +16,40 @@ import dbus.mainloop.glib
 import dbus.service
 from gi.repository import GLib
 
-ART = os.path.expanduser("~/.config/quickshell/overview/assets/image.png")
+ART = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "fake-mpris-art.png")
 TRACKS = [
-    ("Midnight City", "M83", "Hurry Up, We're Dreaming", 243),
+    ("Neon Skyline", "The Static Hours", "Night Signals", 243),
     ("A Very Long Track Title That Must Be Elided Properly", "Some Artist With A Long Name", "Album", 187),
     ("Short", "Duo", "EP", 95),
 ]
+
+
+def make_art(path, size=256):
+    """A neutral generated cover (gradient and a soft disc), so the test player
+    needs no image files and never shows anyone's artwork."""
+    import struct
+    import zlib
+
+    rows = []
+    for y in range(size):
+        row = bytearray([0])
+        for x in range(size):
+            t = (x + y) / (2 * size)
+            r, g, b = int(40 + 170 * t), int(70 + 70 * (1 - t)), int(170 + 60 * (1 - t))
+            d = ((x - size * 0.62) ** 2 + (y - size * 0.38) ** 2) ** 0.5
+            if d < size * 0.22:
+                r, g, b = min(255, r + 60), min(255, g + 90), min(255, b + 20)
+            row += bytes((r, g, b))
+        rows.append(bytes(row))
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(png)
 PLAYER = "org.mpris.MediaPlayer2.Player"
 ROOT = "org.mpris.MediaPlayer2"
 PROPS = "org.freedesktop.DBus.Properties"
@@ -184,6 +212,7 @@ def main():
     ap.add_argument("--no-length", action="store_true", help="simulate an ad/podcast with length 0")
     args = ap.parse_args()
 
+    make_art(ART)
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SessionBus()
     bus_name = dbus.service.BusName(f"org.mpris.MediaPlayer2.{args.name}", bus)  # keep a reference or the name is released

@@ -11,7 +11,7 @@ TabPage {
 
     SSection {
         title: "Event hooks"
-        subtitle: "Executables in " + Hooks.dir + "/<event>/ run whenever that event fires. They get the payload as JSON on stdin, in $ISLAND_DATA, and as flat $ISLAND_<FIELD> variables."
+        subtitle: "Executables in " + Config.tilde(Hooks.dir) + "/<event>/ run whenever that event fires. They get the payload as JSON on stdin, in $ISLAND_DATA, and as flat $ISLAND_<FIELD> variables."
     }
     SettingRow {
         path: ["hooks", "enabled"]
@@ -51,7 +51,7 @@ TabPage {
         visible: Hooks.scripts.length === 0
         width: parent.width
         bottomPadding: 12
-        text: "No hook scripts found. Example: " + Hooks.dir + "/claude.state/10-notify.sh (chmod +x)."
+        text: "No hook scripts found. Example: " + Config.tilde(Hooks.dir) + "/claude.state/10-notify.sh (chmod +x)."
         wrapMode: Text.WordWrap
         color: Theme.fgDim
         font.family: Theme.font

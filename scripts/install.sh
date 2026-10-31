@@ -63,7 +63,7 @@ step_hypr() {
 layerrule = match:namespace island, ignore_alpha 0.3
 layerrule = match:namespace island, no_anim on
 layerrule = match:namespace island-settings, blur on
-layerrule = match:namespace island-settings, ignore_alpha 0.3
+layerrule = match:namespace island-settings, ignore_alpha 0.5
 layerrule = match:namespace island-settings, no_anim on'
   add_block "$USERCFG/UserKeybinds.conf" 'bindd = $mainMod ALT, I, toggle island, exec, qs ipc -c island call island toggle
 bindd = $mainMod ALT, S, island settings, exec, $HOME/.local/bin/island-ctl settings'

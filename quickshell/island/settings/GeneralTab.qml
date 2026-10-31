@@ -32,7 +32,7 @@ TabPage {
 
     SSection {
         title: "Clock"
-        subtitle: "Always shown, separate from the island. It sits in the middle of the bar and moves to the right of the island while the island is showing something. Hover for the date, right-click for these settings."
+        subtitle: "Always shown, separate from the island. It sits in the middle of the bar and moves to the right of the island while the island is showing something. Right-click it for these settings."
     }
     SettingRow {
         path: ["clock", "enabled"]
@@ -46,9 +46,10 @@ TabPage {
         type: "string"
     }
     SettingRow {
-        path: ["clock", "dateFormat"]
-        title: "Date format"
-        type: "string"
+        path: ["clock", "hideInFullscreen"]
+        title: "Hide in fullscreen"
+        description: "The island can stay above a fullscreen window (see above); the clock goes away."
+        type: "bool"
     }
     SettingRow {
         path: ["clock", "gap"]

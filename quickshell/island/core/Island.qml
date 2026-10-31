@@ -19,8 +19,15 @@ PanelWindow {
     // The window sits at the very top of the screen so the expanded island
     // can be flush with the edge; the pill itself is offset by window.marginTop.
     margins.top: 0
-    implicitWidth: Config.cfg.window.width
-    implicitHeight: Config.cfg.window.height
+    // The window is only as big as what is on screen: small while collapsed or
+    // hovered, and just tall enough for the expanded view while expanded. Every
+    // pixel of it is drawn, composited and (with a layer blur rule) blurred by
+    // the compositor on every frame of an animation, so less area is smoother
+    // on a 144 Hz display. Resizing happens on mode changes, never per frame.
+    property bool tall: false
+    property real tallHeight: 110
+    implicitWidth: tall ? Math.min(Config.cfg.window.width, Math.max(760, Math.ceil(pill.target.width) + 360)) : Math.min(Config.cfg.window.width, 760)
+    implicitHeight: tall ? tallHeight : 110
     exclusionMode: ExclusionMode.Ignore
 
     WlrLayershell.namespace: "island"
@@ -104,6 +111,15 @@ PanelWindow {
     }
     onModeChanged: {
         sync();
+        if (mode === "expanded") {
+            shrinkTimer.stop();
+            // room for the expanded view, plus the spring's overshoot
+            const design = current ? current.sizeFor("expanded").height : 0;
+            tallHeight = Math.min(Config.cfg.window.height, Math.max(110, Math.ceil(design * Config.cfg.sizes.expandedScale) + 40));
+            tall = true;
+        } else if (tall) {
+            shrinkTimer.restart();
+        }
         if (current) {
             current.hostMode = mode;
             Events.emit("island.mode", { mode: mode, activity: current.moduleId });
@@ -157,6 +173,14 @@ PanelWindow {
         }
     }
 
+    // Shrink the window once the collapse animation has settled.
+    Timer {
+        id: shrinkTimer
+        interval: 800
+        onTriggered: if (win.mode !== "expanded")
+            win.tall = false
+    }
+
     Timer {
         id: hoverInTimer
         interval: Config.cfg.timings.hoverInMs
@@ -176,34 +200,48 @@ PanelWindow {
         onCleared: win.mode = "collapsed"
     }
 
-    // ---- input mask: only the pill takes input ----------------------------
+    // ---- input mask: only the pill, its flares, bubble and clock take input ----
+    // Computed from where things are going (the targets), not from the animated
+    // geometry: the mask then changes only when the mode changes instead of
+    // being recomputed and sent to the compositor on every frame.
+    readonly property real tW: pill.target.width
+    readonly property real tH: pill.target.height
+    readonly property real tX: (win.width - tW) / 2
+    readonly property real tAttach: mode === "collapsed" ? 0 : 1
+    readonly property real tY: Config.cfg.window.marginTop * (1 - tAttach)
+    readonly property real tRb: Math.min(tH / 2, Config.cfg.sizes.maxRadius)
+    readonly property real tFlare: Math.min(Math.max(0, Number(Config.cfg.sizes.flare)), Math.max(0, tH - tRb - 2)) * tAttach
+    readonly property real tBubbleX: tX + tW + tFlare + 8
+    readonly property real tEdge: bubble.shown ? tBubbleX + bubble.width : tX + tW + tFlare
+    readonly property real tClockX: pill.visible ? tEdge + Config.cfg.clock.gap : (win.width - clock.width) / 2
+
     mask: Region {
-        x: Math.max(0, Math.floor(pill.x))
+        x: Math.max(0, Math.floor(win.tX))
         y: 0
-        width: Math.ceil(pill.visible ? pill.width : 0)
-        height: Math.ceil(pill.visible ? pill.y + pill.height : 0)
+        width: Math.ceil(pill.visible ? win.tW : 0)
+        height: Math.ceil(pill.visible ? win.tY + win.tH : 0)
 
         // the two flares beside an attached pill
         Region {
-            x: Math.max(0, Math.floor(pill.x - pill.flareExtent))
+            x: Math.max(0, Math.floor(win.tX - win.tFlare))
             y: 0
-            width: Math.ceil(pill.visible ? pill.flareExtent : 0)
-            height: Math.ceil(pill.visible ? pill.flareExtent : 0)
+            width: Math.ceil(pill.visible ? win.tFlare : 0)
+            height: Math.ceil(pill.visible ? win.tFlare : 0)
         }
         Region {
-            x: Math.max(0, Math.floor(pill.x + pill.width))
+            x: Math.max(0, Math.floor(win.tX + win.tW))
             y: 0
-            width: Math.ceil(pill.visible ? pill.flareExtent : 0)
-            height: Math.ceil(pill.visible ? pill.flareExtent : 0)
+            width: Math.ceil(pill.visible ? win.tFlare : 0)
+            height: Math.ceil(pill.visible ? win.tFlare : 0)
         }
         Region {
-            x: Math.max(0, Math.floor(bubble.x))
-            y: Math.max(0, Math.floor(bubble.y))
-            width: bubble.visible ? Math.ceil(bubble.width) : 0
-            height: bubble.visible ? Math.ceil(bubble.height) : 0
+            x: Math.max(0, Math.floor(win.tBubbleX))
+            y: Config.cfg.window.marginTop
+            width: bubble.shown ? Math.ceil(bubble.width) : 0
+            height: bubble.shown ? Math.ceil(bubble.height) : 0
         }
         Region {
-            x: Math.max(0, Math.floor(clock.x))
+            x: Math.max(0, Math.floor(win.tClockX))
             y: Math.max(0, Math.floor(clock.y))
             width: clock.visible ? Math.ceil(clock.width) : 0
             height: clock.visible ? Math.ceil(clock.height) : 0
@@ -228,7 +266,7 @@ PanelWindow {
         act: win.bubbleAct
         shown: win.bubbleAct !== null && win.mode !== "expanded"
         x: pill.x + pill.width + pill.flareExtent + 8
-        y: pill.y
+        y: Config.cfg.window.marginTop
         onClicked: win.swapToBubble()
     }
 

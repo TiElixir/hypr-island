@@ -162,6 +162,7 @@ ShellRoot {
                 secondary: s ? s.activityId : null,
                 live: sel.sorted.map(a => a.activityId),
                 keepOnTop: UiBus.keepOnTop,
+                fullscreen: Windows.workspaceFullscreen,
                 hooks: Hooks.scripts.length,
                 windows: islands.instances.map(w => ({
                             screen: w.screen ? w.screen.name : null,

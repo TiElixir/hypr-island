@@ -1,11 +1,11 @@
 import QtQuick
-import QtQuick.Shapes
-import Quickshell.Widgets
 
 // The visual pill. Width, height and corner shape are one spring-animated
-// silhouette. Collapsed and hover it is a floating rounded pill; expanded it
-// attaches to the top edge of the screen: the upper corners turn into concave
-// flares that ease out of the edge, and the lower corners stay rounded.
+// silhouette, drawn by a single fragment shader (shaders/body.frag) as a
+// signed distance field: cheap per frame, no path tessellation, no offscreen
+// clipping pass. Collapsed it is a floating rounded pill; hovered and expanded
+// it attaches to the top edge of the screen with concave flares that ease out
+// of the edge, and the lower corners stay rounded.
 // Views are laid out at their *target* size and crossfaded inside a clip, so
 // text never reflows while the pill morphs.
 Item {
@@ -23,11 +23,17 @@ Item {
 
     // ---- size ------------------------------------------------------------------
     readonly property real expandedScale: Math.max(1, Number(Config.cfg.sizes.expandedScale))
+    readonly property real hoverScale: Math.max(0.5, Number(Config.cfg.sizes.hoverScale))
+    // Hover and expanded views are drawn at their design size times this.
+    function scaleFor(m) {
+        return m === "expanded" ? expandedScale : m === "hover" ? hoverScale : 1;
+    }
     readonly property size target: {
         if (!act)
             return Qt.size(0, 0);
         const s = act.sizeFor(mode);
-        return mode === "expanded" ? Qt.size(s.width * expandedScale, s.height * expandedScale) : s;
+        const k = scaleFor(mode);
+        return Qt.size(s.width * k, s.height * k);
     }
     property real animW: target.width
     property real animH: target.height
@@ -47,8 +53,9 @@ Item {
         }
     }
 
-    // 0: floating pill in the bar. 1: flush with the top edge, with flares.
-    property real attach: mode === "expanded" ? 1 : 0
+    // 0: floating pill in the bar (collapsed). 1: flush with the top edge,
+    // with flares (hover and expanded).
+    property real attach: mode === "collapsed" ? 0 : 1
     Behavior on attach {
         NumberAnimation {
             duration: 280
@@ -65,14 +72,14 @@ Item {
     // ---- silhouette geometry ---------------------------------------------------
     readonly property real flareMax: Math.max(0, Number(Config.cfg.sizes.flare))
     readonly property real rb: Math.min(height / 2, Config.cfg.sizes.maxRadius)
+    // The flare may not be taller than the straight part of the side wall,
+    // so a small (hover) pill gets a proportionally smaller flare.
+    readonly property real flareUse: Math.min(flareMax, Math.max(0, height - rb - 2))
     // How far the flares currently reach outside the body.
-    readonly property real flareExtent: flareMax * attach
-    // Top corner: a convex round (radius rb) blends into a concave flare
-    // (radius flareMax) as `attach` goes 0 -> 1.
+    readonly property real flareExtent: flareUse * attach
+    // Radius of the convex top corners while floating; they flatten out as the
+    // pill attaches to the edge and the flares take over.
     readonly property real corner: Math.min(rb, height / 2 - 1)
-    readonly property real ca: corner * (1 - attach) - flareMax * attach   // x offset of the corner start from the body edge
-    readonly property real cq: corner * (1 - attach) + flareMax * attach   // y extent of the corner
-    readonly property real k1: 0.4477                                       // 1 - the usual bezier circle constant
 
     onActChanged: {
         if (shown === null || act === null)
@@ -100,92 +107,29 @@ Item {
         }
     }
 
-    // One path for the whole outline, so there are no seams and the
-    // translucent fill is never composited twice.
-    Shape {
-        id: silhouette
+    // The body. The item reaches flareMax beyond the pill on both sides so the
+    // flares have room; the outline and fill are drawn by the shader.
+    ShaderEffect {
+        id: bodyShape
         x: -root.flareMax
         y: 0
         width: root.width + 2 * root.flareMax
         height: root.height
-        preferredRendererType: Shape.CurveRenderer
+        blending: true
 
-        ShapePath {
-            id: outline
-            readonly property real ox: root.flareMax
-            readonly property real w: root.width
-            readonly property real h: root.height
-            readonly property real rb: root.rb
-            readonly property real a: root.ca
-            readonly property real q: root.cq
-            readonly property real k: root.k1
-
-            fillColor: Qt.alpha(Theme.bg, Config.cfg.colors.bgAlpha)
-            strokeColor: Qt.rgba(1, 1, 1, 0.07 * (1 - root.attach))
-            strokeWidth: 1
-
-            startX: ox + a
-            startY: 0
-            PathLine {
-                x: outline.ox + outline.w - outline.a
-                y: 0
-            }
-            PathCubic {
-                control1X: outline.ox + outline.w - outline.k * outline.a
-                control1Y: 0
-                control2X: outline.ox + outline.w
-                control2Y: outline.k * outline.q
-                x: outline.ox + outline.w
-                y: outline.q
-            }
-            PathLine {
-                x: outline.ox + outline.w
-                y: outline.h - outline.rb
-            }
-            PathCubic {
-                control1X: outline.ox + outline.w
-                control1Y: outline.h - outline.k * outline.rb
-                control2X: outline.ox + outline.w - outline.k * outline.rb
-                control2Y: outline.h
-                x: outline.ox + outline.w - outline.rb
-                y: outline.h
-            }
-            PathLine {
-                x: outline.ox + outline.rb
-                y: outline.h
-            }
-            PathCubic {
-                control1X: outline.ox + outline.k * outline.rb
-                control1Y: outline.h
-                control2X: outline.ox
-                control2Y: outline.h - outline.k * outline.rb
-                x: outline.ox
-                y: outline.h - outline.rb
-            }
-            PathLine {
-                x: outline.ox
-                y: outline.q
-            }
-            PathCubic {
-                control1X: outline.ox
-                control1Y: outline.k * outline.q
-                control2X: outline.ox + outline.k * outline.a
-                control2Y: 0
-                x: outline.ox + outline.a
-                y: 0
-            }
-        }
+        property vector2d size: Qt.vector2d(width, height)
+        property vector4d shape: Qt.vector4d(root.flareMax, root.width, root.height, root.rb)
+        property vector4d shape2: Qt.vector4d(root.corner * (1 - root.attach), root.flareExtent, 0, 0)
+        property vector4d tint: Qt.vector4d(Theme.bg.r, Theme.bg.g, Theme.bg.b, Config.cfg.colors.bgAlpha)
+        fragmentShader: Qt.resolvedUrl("shaders/body.frag.qsb")
     }
 
-    // Content is clipped to the body: flat on top once attached, rounded below.
-    ClippingRectangle {
+    // Content is clipped to the body rectangle (a plain scissor clip, far
+    // cheaper than a rounded one; views keep clear of the corners).
+    Item {
         id: body
         anchors.fill: parent
-        color: "transparent"
-        topLeftRadius: root.corner * (1 - root.attach)
-        topRightRadius: root.corner * (1 - root.attach)
-        bottomLeftRadius: root.rb
-        bottomRightRadius: root.rb
+        clip: true
 
         Repeater {
             model: ["collapsed", "hover", "expanded"]
@@ -203,10 +147,10 @@ Item {
                 }
 
                 anchors.centerIn: parent
-                // Laid out at the design size, scaled up when expanded.
+                // Laid out at the design size, then scaled (hover smaller, expanded larger).
                 width: root.shown ? root.shown.sizeFor(modelData).width : 0
                 height: root.shown ? root.shown.sizeFor(modelData).height : 0
-                scale: modelData === "expanded" ? root.expandedScale : 1
+                scale: root.scaleFor(modelData)
                 // Fade-in starts late so the old view is gone first.
                 opacity: Math.max(0, (vis - 0.35) / 0.65) * root.swapOpacity
                 visible: opacity > 0.01

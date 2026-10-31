@@ -24,11 +24,11 @@ TabPage {
         spacing: 6
         Repeater {
             model: [
-                { k: "Config", v: Config.path },
-                { k: "Your modules", v: manager.userDir },
-                { k: "Built-in modules", v: manager.builtinDir },
-                { k: "Hooks", v: Hooks.dir },
-                { k: "State", v: Feed.stateDir }
+                { k: "Config", v: Config.tilde(Config.path) },
+                { k: "Your modules", v: Config.tilde(manager.userDir) },
+                { k: "Built-in modules", v: Config.tilde(manager.builtinDir) },
+                { k: "Hooks", v: Config.tilde(Hooks.dir) },
+                { k: "State", v: Config.tilde(Feed.stateDir) }
             ]
             delegate: Row {
                 required property var modelData

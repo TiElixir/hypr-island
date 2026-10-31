@@ -24,6 +24,8 @@ Singleton {
         layer: { keepOnTop: true },
         // The window is a fixed, invisible area the pill moves in; it must be
         // larger than the biggest expanded pill plus the clock beside it.
+        // Collapsed and hovered, the window shrinks to what is needed (less to
+        // draw and less for the compositor to blur); expanded it uses this size.
         window: { width: 920, height: 460, marginTop: 3 },
         sizes: {
             collapsedHeight: 24,
@@ -31,14 +33,17 @@ Singleton {
             // Radius of the concave flares joining an expanded island to the top edge.
             flare: 22,
             // Expanded views are drawn this much larger than their design size.
-            expandedScale: 1.2
+            expandedScale: 1.2,
+            // Hover views are drawn this much of their design size.
+            hoverScale: 0.85
         },
         // The standalone clock (not a module).
         clock: {
             enabled: true,
             // Qt format. Without an "s" the clock only wakes once a minute.
             format: "HH:mm:ss",
-            dateFormat: "dddd, d MMMM yyyy",
+            // Hide the clock while a window is fullscreen (the island may stay).
+            hideInFullscreen: true,
             // Space between the island (or its bubble) and the clock.
             gap: 14
         },
@@ -56,7 +61,9 @@ Singleton {
             // hover, so leave-to-collapse stops working. Off by default.
             focusGrab: false
         },
-        spring: { spring: 3.0, damping: 0.32, epsilon: 0.25 },
+        // damping: lower is bouncier but takes longer to settle, and the
+        // compositor redraws every frame until it does.
+        spring: { spring: 3.2, damping: 0.44, epsilon: 0.5 },
         colors: {
             bgAlpha: 0.9,
             running: "#FF9F0A",
@@ -78,6 +85,12 @@ Singleton {
     property var user: ({})
     readonly property var cfg: merge(defaults, user)
     property bool loaded: false
+
+    // "/home/me/.config/x" -> "~/.config/x", for showing paths to people.
+    function tilde(p) {
+        const h = Quickshell.env("HOME");
+        return h && String(p).indexOf(h) === 0 ? "~" + String(p).slice(h.length) : String(p);
+    }
 
     function isObj(v) {
         return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -196,7 +209,7 @@ Singleton {
             delete out.modules.clock;
             out.clock = isObj(out.clock) ? out.clock : {};
             if (isObj(old.options))
-                for (const k of ["format", "dateFormat"])
+                for (const k of ["format"])
                     if (old.options[k] !== undefined)
                         out.clock[k] = old.options[k];
             if (old.enabled !== undefined)
