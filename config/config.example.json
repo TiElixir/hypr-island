@@ -1,0 +1,18 @@
+{
+  "monitor": { "policy": "focused", "name": "" },
+  "layer": { "keepOnTop": true },
+  "clock": { "format": "HH:mm:ss" },
+  "spotify": { "playerPriority": ["spotify", "*"], "pausedLingerSec": 60 },
+  "colors": {
+    "bgAlpha": 0.9,
+    "running": "#FF9F0A",
+    "needsInput": "#FF453A",
+    "done": "#30D158"
+  },
+  "timings": {
+    "hoverInMs": 80,
+    "hoverOutMs": 250,
+    "expandedLeaveMs": 600,
+    "collapseOnLeave": true
+  }
+}

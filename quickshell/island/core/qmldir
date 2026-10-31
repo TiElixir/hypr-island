@@ -1,0 +1,7 @@
+singleton Config 1.0 Config.qml
+singleton Theme 1.0 Theme.qml
+singleton UiBus 1.0 UiBus.qml
+Activity 1.0 Activity.qml
+Selector 1.0 Selector.qml
+Island 1.0 Island.qml
+Pill 1.0 Pill.qml
