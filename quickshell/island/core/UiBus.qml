@@ -12,6 +12,8 @@ Singleton {
     signal collapseRequested
     // Same as clicking the side bubble: swap the runner-up to the front.
     signal swapRequested
+    // Open (or toggle) the Settings panel, optionally on a tab.
+    signal settingsRequested(string tab)
 
     // null = follow config.json, otherwise a runtime override from island-ctl.
     property var keepOnTopOverride: null

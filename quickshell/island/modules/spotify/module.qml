@@ -2,16 +2,14 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
-import "../core"
-import "../components"
+import qs.core
+import qs.components
 
 // Music over MPRIS. Prefers Spotify (configurable), ignores playerctld,
 // and hides itself when nothing is playing.
 Activity {
     id: root
 
-    activityId: "spotify"
-    priority: 60
     accent: "#1DB954"
 
     collapsedSize: Qt.size(56, Config.cfg.sizes.collapsedHeight + 2)
@@ -34,7 +32,7 @@ Activity {
             return null;
         const norm = s => String(s).toLowerCase();
         const matches = (p, key) => key === "*" || norm(p.dbusName).indexOf(norm(key)) >= 0 || norm(p.identity).indexOf(norm(key)) >= 0;
-        const prio = Config.cfg.spotify.playerPriority;
+        const prio = root.option("playerPriority");
         for (const onlyPlaying of [true, false]) {
             for (let k = 0; k < prio.length; k++) {
                 for (let i = 0; i < all.length; i++) {
@@ -50,6 +48,7 @@ Activity {
     property bool lingering: false
 
     onPlayingChanged: {
+        root.emit("state", { state: playing ? "playing" : "paused", player: player ? String(player.identity) : "" });
         if (playing) {
             lingering = true;
             lingerTimer.stop();
@@ -65,7 +64,7 @@ Activity {
     }
     Timer {
         id: lingerTimer
-        interval: Config.cfg.spotify.pausedLingerSec * 1000
+        interval: Number(root.option("pausedLingerSec")) * 1000
         onTriggered: root.lingering = false
     }
 
@@ -74,6 +73,16 @@ Activity {
     // ---- track info -------------------------------------------------------
     readonly property string title: player ? String(player.trackTitle) : ""
     readonly property string artist: player ? String(player.trackArtist) : ""
+    readonly property string album: player ? String(player.trackAlbum) : ""
+    // One event per track change (title and artist settle a moment apart).
+    Timer {
+        id: trackTimer
+        interval: 150
+        onTriggered: if (root.title !== "")
+            root.emit("track", { title: root.title, artist: root.artist, album: root.album, player: root.player ? String(root.player.identity) : "" })
+    }
+    onTitleChanged: trackTimer.restart()
+    onArtistChanged: trackTimer.restart()
     // Ads and podcasts can report length 0.
     readonly property bool hasLength: player !== null && player.lengthSupported && player.length > 0
     readonly property real position: player && player.positionSupported ? player.position : 0

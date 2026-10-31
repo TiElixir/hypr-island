@@ -1,0 +1,162 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+// Runs a module's script ("source" in manifest.json) and feeds the module.
+//
+//   "source": { "command": ["python3", "fetch.py"], "mode": "poll", "intervalSec": 30 }
+//
+// mode "stream" (default): one long-running process, restarted with back-off
+//   when it exits. mode "poll": run the command every intervalSec (or the value
+//   of the module option named by "intervalOption"), with a timeout.
+// Every stdout line that is a JSON object becomes inst.sourceMessage(obj) and
+// inst.sourceData. A line like {"_event":"lap","n":3} also emits "<module>.lap"
+// on the event bus. Anything else on stdout arrives as {text: "..."}.
+// The script runs in the module's directory with $ISLAND_OPT_<KEY> set from
+// the module's options, and restarts when those options change. It only exists
+// while the module is enabled.
+QtObject {
+    id: sr
+
+    required property var inst
+    required property var spec
+    required property string moduleDir
+
+    readonly property string mode: spec.mode === "poll" ? "poll" : "stream"
+    property bool desired: true
+    property int backoff: 0
+    property int errLines: 0
+
+    function allOptions() {
+        const o = {};
+        const list = inst.manifest.options || [];
+        for (let i = 0; i < list.length; i++)
+            o[list[i].key] = inst.option(list[i].key);
+        return o;
+    }
+    function environmentNow() {
+        const env = {
+            ISLAND_MODULE_ID: inst.moduleId,
+            ISLAND_MODULE_DIR: moduleDir,
+            ISLAND_CTL: Feed.ctl
+        };
+        const opts = allOptions();
+        for (const k in opts) {
+            const v = opts[k];
+            env["ISLAND_OPT_" + k.toUpperCase().replace(/[^A-Z0-9]/g, "_")] = Array.isArray(v) ? v.join(",") : String(v);
+        }
+        return env;
+    }
+    readonly property string optionSignature: JSON.stringify(allOptions())
+    onOptionSignatureChanged: restartSoon.restart()
+    readonly property real pollSec: {
+        const fromOption = spec.intervalOption ? Number(inst.option(spec.intervalOption)) : NaN;
+        const v = isNaN(fromOption) ? Number(spec.intervalSec) : fromOption;
+        return Math.max(1, isNaN(v) ? 30 : v);
+    }
+
+    function setStatus(s) {
+        inst.sourceStatus = s;
+    }
+
+    function launch() {
+        if (!desired || proc.running)
+            return;
+        errLines = 0;
+        proc.environment = environmentNow();
+        const cmd = spec.command || [];
+        if (cmd.length === 0) {
+            setStatus("error: no command");
+            return;
+        }
+        proc.command = mode === "poll" ? ["timeout", String(spec.timeoutSec || 20)].concat(cmd) : cmd;
+        setStatus("running");
+        proc.running = true;
+    }
+
+    function start() {
+        stopProc();
+        desired = true;
+        backoff = 0;
+        launch();
+        if (mode === "poll")
+            pollTimer.restart();
+    }
+
+    function stopProc() {
+        restartTimer.stop();
+        pollTimer.stop();
+        if (proc.running)
+            proc.running = false;
+    }
+
+    function stop() {
+        desired = false;
+        stopProc();
+        setStatus("off");
+    }
+
+    function handle(line) {
+        const t = line.trim();
+        if (t === "")
+            return;
+        let msg;
+        try {
+            const p = JSON.parse(t);
+            msg = p !== null && typeof p === "object" && !Array.isArray(p) ? p : { value: p };
+        } catch (e) {
+            msg = { text: t };
+        }
+        inst.sourceData = msg;
+        inst.sourceMessage(msg);
+        if (typeof msg._event === "string" && /^[A-Za-z0-9_.-]+$/.test(msg._event))
+            inst.emit(msg._event, msg);
+    }
+
+    function exited(code) {
+        if (!desired)
+            return;
+        if (mode === "poll") {
+            setStatus(code === 0 ? "ok" : (code === 124 ? "error: timed out" : "error: exit " + code));
+            return;
+        }
+        backoff = code === 0 ? (spec.restartSec || 5) : Math.min(60, Math.max(backoff * 2, spec.restartSec || 5));
+        setStatus("exited (" + code + "), restarting in " + backoff + "s");
+        restartTimer.interval = backoff * 1000;
+        restartTimer.restart();
+    }
+
+    property Process proc: Process {
+        workingDirectory: sr.moduleDir
+        stdout: SplitParser {
+            onRead: line => sr.handle(line)
+        }
+        stderr: SplitParser {
+            onRead: line => {
+                if (sr.errLines++ < 20)
+                    console.warn("island module " + sr.inst.moduleId + ":", line);
+            }
+        }
+        onExited: code => sr.exited(code)
+    }
+    property Timer restartTimer: Timer {
+        onTriggered: sr.launch()
+    }
+    property Timer pollTimer: Timer {
+        interval: sr.pollSec * 1000
+        repeat: true
+        onTriggered: sr.launch()
+    }
+    property Timer restartSoon: Timer {
+        interval: 600
+        onTriggered: if (sr.desired)
+            sr.start()
+    }
+
+    Component.onCompleted: start()
+    Component.onDestruction: {
+        desired = false;
+        if (proc.running)
+            proc.running = false;
+    }
+}

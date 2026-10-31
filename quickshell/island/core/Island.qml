@@ -67,11 +67,24 @@ PanelWindow {
             _prev.hostMode = "collapsed";
             _prev.hostHovered = false;
         }
+        if (_prev && _prev !== current)
+            _prev.hostPresented = false;
         if (current) {
             current.hostMode = mode;
             current.hostHovered = hovered;
+            current.hostPresented = true;
+            Events.emit("island.primary", { activity: current.moduleId });
         }
         _prev = current;
+    }
+
+    property var _prevBubble: null
+    onBubbleActChanged: {
+        if (_prevBubble && _prevBubble !== bubbleAct)
+            _prevBubble.hostBubble = false;
+        if (bubbleAct)
+            bubbleAct.hostBubble = true;
+        _prevBubble = bubbleAct;
     }
     onPrimaryChanged: {
         if (primary !== null && primary.urgent)
@@ -89,8 +102,10 @@ PanelWindow {
     }
     onModeChanged: {
         sync();
-        if (current)
+        if (current) {
             current.hostMode = mode;
+            Events.emit("island.mode", { mode: mode, activity: current.moduleId });
+        }
         // Expanded without the pointer (keybind / IPC): don't linger forever.
         if (mode === "expanded" && !hovered && Config.cfg.timings.collapseOnLeave) {
             leaveTimer.interval = Config.cfg.timings.expandedIdleMs;

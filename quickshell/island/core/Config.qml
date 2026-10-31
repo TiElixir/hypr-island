@@ -4,8 +4,13 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// User config lives in ~/.config/island/config.json and is deep-merged over
-// `defaults`. The file is watched, so edits apply without a restart.
+// User config: ~/.config/island/config.json, deep-merged over `defaults`.
+// Module settings live under modules.<id>.{enabled, priority, options.<key>};
+// their defaults come from each module's manifest.json, not from here.
+//
+// The Settings panel edits through set()/reset(): the change is applied at
+// once and saved (debounced) to the file. Edits made to the file by hand are
+// hot-reloaded.
 Singleton {
     id: root
 
@@ -41,51 +46,20 @@ Singleton {
             done: "#30D158"
         },
         font: { family: "JetBrainsMono Nerd Font", size: 13 },
-        clock: {
-            // Qt date format. Without an "s" the clock only wakes once a minute.
-            format: "HH:mm:ss",
-            dateFormat: "dddd, d MMMM yyyy",
-            collapsedWidth: 104
+        hooks: {
+            enabled: true,
+            timeoutSec: 10,
+            // The same script is not started again within this window.
+            minIntervalMs: 250,
+            // "<event>/<script name>" entries switched off in Settings.
+            disabled: []
         },
-        spotify: {
-            // First entry that matches wins. Matches dbus name or identity,
-            // case-insensitive. "*" matches anything. Players that are playing
-            // are preferred over paused ones before priority is applied.
-            playerPriority: ["spotify", "*"],
-            // Keep showing a paused player for this long, then fall back.
-            pausedLingerSec: 60
-        },
-        claude: {
-            // Sessions silent for this long are dropped (a running session
-            // with a live process is exempt, long tools send no events).
-            staleTimeoutMin: 30,
-            // How often dead processes are swept, only while sessions exist.
-            sweepSec: 30,
-            // Hovering a green pill this long (cumulative) acknowledges it.
-            hoverAckMs: 3000,
-            // 0 = green stays until clicked or hovered. > 0 = also fade after N s.
-            doneFadeSec: 0,
-            // Clicking a session row focuses the terminal window it runs in.
-            focusOnClick: true
-        },
-        external: {
-            // Used when `island-ctl push` gives no --timeout of its own.
-            defaultTimeoutSec: 5
-        },
-        // Higher wins the primary slot, the runner-up becomes the side bubble.
-        priorities: {
-            claude_needs_input: 100,
-            external: 70,
-            spotify: 60,
-            claude_running: 55,
-            claude_done: 40,
-            clock: 0
-        },
-        enabled: { clock: true, spotify: true, claude: true, external: true }
+        modules: {}
     })
 
     property var user: ({})
     readonly property var cfg: merge(defaults, user)
+    property bool loaded: false
 
     function isObj(v) {
         return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -102,20 +76,151 @@ Singleton {
         return out;
     }
 
+    function clone(v) {
+        return JSON.parse(JSON.stringify(v));
+    }
+
+    // ---- reading ------------------------------------------------------------
+    function get(path) {
+        let o = cfg;
+        for (const k of path) {
+            if (o === undefined || o === null)
+                return undefined;
+            o = o[k];
+        }
+        return o;
+    }
+
+    // ---- writing ------------------------------------------------------------
+    function set(path, value) {
+        if (JSON.stringify(get(path)) === JSON.stringify(value) && hasUser(path))
+            return;
+        const u = clone(user);
+        let o = u;
+        for (let i = 0; i < path.length - 1; i++) {
+            if (!isObj(o[path[i]]))
+                o[path[i]] = {};
+            o = o[path[i]];
+        }
+        o[path[path.length - 1]] = value;
+        user = u;
+        scheduleSave();
+    }
+
+    function hasUser(path) {
+        let o = user;
+        for (const k of path) {
+            if (!isObj(o) || o[k] === undefined)
+                return false;
+            o = o[k];
+        }
+        return true;
+    }
+
+    // Back to the default: remove the override and prune empty parents.
+    function reset(path) {
+        if (!hasUser(path))
+            return;
+        const u = clone(user);
+        const trail = [u];
+        let o = u;
+        for (let i = 0; i < path.length - 1; i++) {
+            o = o[path[i]];
+            trail.push(o);
+        }
+        delete o[path[path.length - 1]];
+        for (let i = trail.length - 1; i > 0; i--) {
+            if (Object.keys(trail[i]).length === 0)
+                delete trail[i - 1][path[i - 1]];
+            else
+                break;
+        }
+        user = u;
+        scheduleSave();
+    }
+
+    function resetAll() {
+        user = ({});
+        scheduleSave();
+    }
+
+    property double ignoreUntil: 0
+    function scheduleSave() {
+        saveTimer.restart();
+    }
+    Timer {
+        id: saveTimer
+        interval: 300
+        onTriggered: {
+            root.ignoreUntil = Date.now() + 1200;
+            file.setText(JSON.stringify(root.user, null, 2) + "\n");
+        }
+    }
+    Process {
+        running: true
+        command: ["mkdir", "-p", Quickshell.env("HOME") + "/.config/island"]
+    }
+
+    // ---- old flat keys (clock, spotify, claude, external, enabled, priorities) --
+    // Configs written before modules had manifests keep working; saving rewrites
+    // them in the modules.<id> layout.
+    function normalize(u) {
+        const legacy = ["clock", "spotify", "claude", "external", "enabled", "priorities"];
+        if (!legacy.some(k => u[k] !== undefined))
+            return u;
+        const out = clone(u);
+        for (const k of legacy)
+            delete out[k];
+        const mods = out.modules = isObj(out.modules) ? out.modules : {};
+        const mod = id => (mods[id] = isObj(mods[id]) ? mods[id] : {});
+        const opts = id => (mod(id).options = isObj(mod(id).options) ? mod(id).options : {});
+        if (isObj(u.enabled))
+            for (const id in u.enabled)
+                mod(id).enabled = u.enabled[id] !== false;
+        if (isObj(u.priorities)) {
+            const p = u.priorities;
+            for (const id of ["clock", "spotify", "external"])
+                if (p[id] !== undefined)
+                    mod(id).priority = p[id];
+            if (p.claude_running !== undefined)
+                mod("claude").priority = p.claude_running;
+            if (p.claude_needs_input !== undefined)
+                opts("claude").priorityNeedsInput = p.claude_needs_input;
+            if (p.claude_done !== undefined)
+                opts("claude").priorityDone = p.claude_done;
+        }
+        for (const id of ["clock", "spotify", "claude", "external"])
+            if (isObj(u[id]))
+                for (const k in u[id])
+                    opts(id)[k] = u[id][k];
+        return out;
+    }
+
     FileView {
+        id: file
         path: root.path
         watchChanges: true
         printErrors: false
-        onFileChanged: reload()
+        // In-place writes keep the file watch alive.
+        atomicWrites: false
+        onFileChanged: {
+            if (Date.now() < root.ignoreUntil)
+                return;
+            reload();
+        }
         onLoaded: {
             try {
                 const parsed = JSON.parse(text());
-                root.user = root.isObj(parsed) ? parsed : {};
+                root.user = root.isObj(parsed) ? root.normalize(parsed) : {};
             } catch (e) {
                 console.warn("island: ignoring invalid config.json:", e);
                 root.user = {};
             }
+            root.loaded = true;
         }
-        onLoadFailed: root.user = {}
+        onLoadFailed: {
+            root.user = {};
+            root.loaded = true;
+        }
     }
 }

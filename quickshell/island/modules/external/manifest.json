@@ -1,0 +1,15 @@
+{
+  "id": "external",
+  "name": "Cards (island-ctl push)",
+  "description": "Temporary cards pushed by any script with island-ctl push.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 70,
+  "emits": {
+    "external.card": "A card was pushed (id, title, subtitle)"
+  },
+  "options": [
+    { "key": "defaultTimeoutSec", "type": "real", "default": 5, "min": 0, "max": 120, "step": 1, "label": "Default card lifetime", "unit": "s",
+      "description": "Used when island-ctl push gives no --timeout. 0 keeps cards until cleared." }
+  ]
+}

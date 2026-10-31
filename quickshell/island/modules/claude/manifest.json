@@ -1,0 +1,24 @@
+{
+  "id": "claude",
+  "name": "Claude Code",
+  "description": "Status of your Claude Code sessions: orange working, red needs you, green done. Fed by hooks in ~/.claude/settings.json.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 55,
+  "emits": {
+    "claude.state": "A session changed state (session, project, from, to)"
+  },
+  "options": [
+    { "key": "priorityNeedsInput", "type": "int", "default": 100, "min": 0, "max": 200, "label": "Priority when it needs you",
+      "description": "Priority while a session is red. The main priority above applies while working." },
+    { "key": "priorityDone", "type": "int", "default": 40, "min": 0, "max": 200, "label": "Priority when done" },
+    { "key": "doneFadeSec", "type": "int", "default": 0, "min": 0, "max": 600, "step": 5, "label": "Fade green after", "unit": "s",
+      "description": "0 keeps green until you click it or hover over it." },
+    { "key": "hoverAckMs", "type": "int", "default": 3000, "min": 500, "max": 15000, "step": 250, "label": "Hover to acknowledge", "unit": "ms" },
+    { "key": "staleTimeoutMin", "type": "int", "default": 30, "min": 1, "max": 600, "label": "Drop silent sessions after", "unit": "min",
+      "description": "A running session with a live process is never dropped." },
+    { "key": "sweepSec", "type": "int", "default": 30, "min": 5, "max": 300, "step": 5, "label": "Dead-process sweep", "unit": "s" },
+    { "key": "focusOnClick", "type": "bool", "default": true, "label": "Focus terminal on click",
+      "description": "Clicking a session row focuses the window it runs in." }
+  ]
+}

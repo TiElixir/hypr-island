@@ -1,8 +1,8 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import "../core"
-import "../components"
+import qs.core
+import qs.components
 
 // Claude Code sessions. The truth lives in one JSON file per session under
 // $XDG_RUNTIME_DIR/island/claude/, written atomically by the hook. The hook
@@ -12,10 +12,15 @@ import "../components"
 Activity {
     id: root
 
-    activityId: "claude"
 
     readonly property string claudeDir: Feed.stateDir + "/claude"
-    readonly property var cfg: Config.cfg.claude
+    readonly property var cfg: ({
+            staleTimeoutMin: Number(option("staleTimeoutMin")),
+            sweepSec: Number(option("sweepSec")),
+            hoverAckMs: Number(option("hoverAckMs")),
+            doneFadeSec: Number(option("doneFadeSec")),
+            focusOnClick: option("focusOnClick") === true
+        })
 
     // ---- model --------------------------------------------------------------
     // All registered sessions, most important first.
@@ -50,7 +55,8 @@ Activity {
     active: lit.length > 0
     urgent: rank(topState) === 3
     accent: colorFor(topState)
-    priority: rank(topState) === 3 ? Config.cfg.priorities.claude_needs_input : topState === "running" ? Config.cfg.priorities.claude_running : Config.cfg.priorities.claude_done
+    // Priority follows the state: red takes the island, then working, then done.
+    effectivePriority: rank(topState) === 3 ? Number(option("priorityNeedsInput")) : topState === "running" ? basePriority : Number(option("priorityDone"))
 
     // ---- sizes --------------------------------------------------------------
     readonly property int rows: Math.max(1, Math.min(6, sessions.length))
@@ -110,9 +116,19 @@ Activity {
                 o.tsSec = Number(o.ts) / 1e9;
                 o.since = Number(o.since) || 0;
                 out.push(o);
+                if (loadedOnce && prev[o.id] !== o.state)
+                    emit("state", { session: o.id, project: o.project, from: prev[o.id] || "none", to: o.state });
                 if (loadedOnce && rank(o.state) === 3 && prev[o.id] !== o.state)
                     alerted = true;
             } catch (e) {}
+        }
+        if (loadedOnce) {
+            const now = {};
+            for (const o of out)
+                now[o.id] = true;
+            for (const id in prev)
+                if (!now[id])
+                    emit("state", { session: id, project: "", from: prev[id], to: "ended" });
         }
         out.sort((a, b) => rank(b.state) - rank(a.state) || b.since - a.since);
         sessions = out;

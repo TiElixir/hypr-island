@@ -2,18 +2,19 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
-import "core"
-import "activities"
+import qs.core
+import qs.settings
 
 ShellRoot {
     id: root
 
-    Registry {
-        id: registry
+    // Finds, loads and unloads modules (built-in and ~/.config/island/modules).
+    ModuleManager {
+        id: mods
     }
     Selector {
         id: sel
-        activities: registry.all
+        activities: mods.all
     }
 
     // Which screens get an island: "focused" (default), "primary" or "all".
@@ -43,11 +44,26 @@ ShellRoot {
     }
 
     Variants {
-        id: windows
+        id: islands
         model: root.targetScreens
         delegate: Island {
             selector: sel
         }
+    }
+
+    SettingsPanel {
+        screen: root.targetScreens.length > 0 ? root.targetScreens[0] : null
+        moduleManager: mods
+    }
+
+    Component.onCompleted: {
+        Hooks.rescan();
+        Events.emit("island.ready", {});
+    }
+
+    function reloadAll() {
+        mods.rescan();
+        Hooks.rescan();
     }
 
     IpcHandler {
@@ -65,6 +81,9 @@ ShellRoot {
         function swap(): void {
             UiBus.swapRequested();
         }
+        function settings(tab: string): void {
+            UiBus.settingsRequested(tab);
+        }
         // mode: "on" | "off" | "toggle" | "config" (follow config.json)
         function keepOnTop(mode: string): string {
             if (mode === "on")
@@ -77,6 +96,51 @@ ShellRoot {
                 UiBus.keepOnTopOverride = null;
             return UiBus.keepOnTop ? "on" : "off";
         }
+        // Rescan modules and hook scripts (after adding or editing them).
+        function reload(): void {
+            root.reloadAll();
+        }
+        function modules(): string {
+            return JSON.stringify(mods.summary());
+        }
+        function enable(id: string, on: bool): string {
+            if (mods.recordOf(id) === null)
+                return "unknown module";
+            mods.setEnabled(id, on);
+            return on ? "enabled" : "disabled";
+        }
+        function windows(): string {
+            return JSON.stringify(Windows.list);
+        }
+        function focused(): string {
+            return JSON.stringify(Windows.focused);
+        }
+        // Put an event on the bus, as if a module had emitted it.
+        function emit(name: string, json: string): string {
+            try {
+                Events.emit(name, json ? JSON.parse(json) : {});
+                return "ok";
+            } catch (e) {
+                return "invalid JSON: " + e;
+            }
+        }
+        // Dotted path, e.g. "modules.clock.options.format". Prints JSON.
+        function config(path: string): string {
+            const v = path ? Config.get(path.split(".")) : Config.cfg;
+            return JSON.stringify(v === undefined ? null : v);
+        }
+        function configSet(path: string, json: string): string {
+            try {
+                Config.set(path.split("."), JSON.parse(json));
+                return "ok";
+            } catch (e) {
+                return "invalid JSON: " + e;
+            }
+        }
+        function configReset(path: string): string {
+            Config.reset(path.split("."));
+            return "ok";
+        }
         function status(): string {
             const p = sel.primary;
             const s = sel.secondary;
@@ -85,7 +149,8 @@ ShellRoot {
                 secondary: s ? s.activityId : null,
                 live: sel.sorted.map(a => a.activityId),
                 keepOnTop: UiBus.keepOnTop,
-                windows: windows.instances.map(w => ({
+                hooks: Hooks.scripts.length,
+                windows: islands.instances.map(w => ({
                             screen: w.screen ? w.screen.name : null,
                             mode: w.mode,
                             hovered: w.hovered,

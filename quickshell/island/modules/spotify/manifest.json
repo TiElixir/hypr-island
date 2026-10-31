@@ -1,0 +1,18 @@
+{
+  "id": "spotify",
+  "name": "Music (MPRIS)",
+  "description": "Now playing from Spotify or any MPRIS player: art, progress, seek and transport controls.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 60,
+  "emits": {
+    "spotify.track": "The playing track changed (title, artist, album, player)",
+    "spotify.state": "Playback started or paused (state, player)"
+  },
+  "options": [
+    { "key": "playerPriority", "type": "list", "default": ["spotify", "*"], "label": "Player priority",
+      "description": "Comma separated. First match on the D-Bus name or player name wins, * matches anything. Playing players beat paused ones." },
+    { "key": "pausedLingerSec", "type": "int", "default": 60, "min": 0, "max": 900, "step": 5, "label": "Keep paused player", "unit": "s",
+      "description": "How long a paused player stays on the island before it falls back." }
+  ]
+}

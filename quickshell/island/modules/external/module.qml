@@ -1,8 +1,8 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import "../core"
-import "../components"
+import qs.core
+import qs.components
 
 // Temporary cards pushed by any script:
 //     island-ctl push --id vol --title "Volume 40%" --icon 󰕾 --progress 40 --timeout 2
@@ -12,15 +12,15 @@ import "../components"
 Activity {
     id: root
 
-    activityId: "external"
 
     readonly property string pushDir: Feed.stateDir + "/push"
 
     property var items: []
+    property bool loadedOnce: false
     readonly property var top: items.length > 0 ? items[0] : null
 
     active: items.length > 0
-    effectivePriority: top && top.priority !== undefined ? top.priority : Config.cfg.priorities.external
+    effectivePriority: top && top.priority !== undefined ? top.priority : basePriority
     accent: top ? colorOf(top) : Theme.accent
 
     function colorOf(it) {
@@ -105,7 +105,14 @@ Activity {
                 out.push(o);
             } catch (e) {}
         }
-        out.sort((a, b) => (b.priority !== undefined ? b.priority : Config.cfg.priorities.external) - (a.priority !== undefined ? a.priority : Config.cfg.priorities.external) || b.created - a.created);
+        out.sort((a, b) => (b.priority !== undefined ? b.priority : basePriority) - (a.priority !== undefined ? a.priority : basePriority) || b.created - a.created);
+        const known = {};
+        for (const it of items)
+            known[it.id] = it.created;
+        for (const it of out)
+            if (known[it.id] !== it.created && loadedOnce)
+                emit("card", { id: it.id, title: it.title || "", subtitle: it.subtitle || "" });
+        loadedOnce = true;
         items = out;
         if (expired.length > 0)
             removeIds(expired);

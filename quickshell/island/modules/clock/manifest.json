@@ -1,0 +1,15 @@
+{
+  "id": "clock",
+  "name": "Clock",
+  "description": "Always-on clock that blends into the bar where Waybar's clock used to be.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 0,
+  "ambient": true,
+  "options": [
+    { "key": "format", "type": "string", "default": "HH:mm:ss", "label": "Time format",
+      "description": "Qt format string. Without an 's' the clock only wakes once a minute." },
+    { "key": "dateFormat", "type": "string", "default": "dddd, d MMMM yyyy", "label": "Date format" },
+    { "key": "collapsedWidth", "type": "int", "default": 104, "min": 60, "max": 220, "step": 2, "label": "Collapsed width", "unit": "px" }
+  ]
+}

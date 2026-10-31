@@ -1,0 +1,16 @@
+{
+  "id": "windowfocus",
+  "name": "Active window",
+  "description": "Flashes the focused window's app and title when focus changes. Expanded, it lists every open window.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 62,
+  "defaultEnabled": false,
+  "subscribe": ["window.focus"],
+  "options": [
+    { "key": "flashMs", "type": "int", "default": 1600, "min": 300, "max": 10000, "step": 100, "label": "Show for", "unit": "ms" },
+    { "key": "showTitle", "type": "bool", "default": true, "label": "Show window title" },
+    { "key": "ignoreClasses", "type": "list", "default": ["island", "quickshell"], "label": "Ignore apps",
+      "description": "Comma separated window classes that never trigger the flash." }
+  ]
+}

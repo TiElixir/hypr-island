@@ -1,0 +1,12 @@
+{
+  "id": "hello",
+  "name": "Hello",
+  "description": "Smallest possible module: shows a greeting while switched on in its options.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 65,
+  "options": [
+    { "key": "show", "type": "bool", "default": true, "label": "Show greeting" },
+    { "key": "text", "type": "string", "default": "hello", "label": "Greeting" }
+  ]
+}
