@@ -1,47 +1,89 @@
 # Island
 
-A Dynamic-Island-style pill for Hyprland, written for [Quickshell](https://quickshell.org).
-It sits at the top-center of the screen and morphs (spring-animated width, height and
-corner shape) into whatever is happening. Expanded, it attaches to the top edge of the
-screen with concave flares that ease into the edge.
+A Dynamic-Island-style status pill for [Hyprland](https://hypr.land), built with
+[Quickshell](https://quickshell.org). It sits at the top-center of the screen and morphs, with a
+spring animation, into whatever is happening: music playing, a Claude Code session waiting for you,
+a message pushed from a script. Hovered or expanded, it attaches to the top edge of the screen with
+concave flares that ease into the edge.
 
-Everything the island shows comes from a **module**. Modules, hooks and settings are all
-extensible without touching this repo:
+Everything the island shows is a **module**, and modules, scripts and hooks are all extensible
+without touching this repository.
 
-| You want to | Do this |
-|---|---|
-| Show something new on the island | Drop a module into `~/.config/island/modules/<id>/` |
-| Feed a module from a script or an API | Add a `source` to its manifest |
-| Run a script when something happens | Drop an executable into `~/.config/island/hooks/<event>/` |
-| Tweak or switch things off | Open Settings (`SUPER+ALT+S`) |
-| Push a one-off message from a shell script | `island-ctl push` |
+Tested on Arch Linux with Hyprland 0.56.2, Quickshell 0.3.1 and Qt 6.11.
 
-Built-in modules: **Music** (Spotify and any MPRIS player), **Claude Code** (session status),
-**Cards** (`island-ctl push`) and an optional **Active window**.
-The **clock** is not a module: it is always there, centered in the bar while the island is idle,
-and slides to the right of the island while the island shows something. Hover for the date,
-right-click to open Settings.
+## Contents
 
-Only the pill, its bubble and the clock take mouse input. The rest of the top edge stays clickable.
-With two live modules, the runner-up becomes a small bubble beside the pill; click it (or run
-`island-ctl swap`) to bring it to the front.
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Built-in modules](#built-in-modules)
+- [Configuration](#configuration)
+- [Extending Island](#extending-island)
+  - [Writing a module](#writing-a-module)
+  - [Scripts as data sources](#scripts-as-data-sources)
+  - [Window data](#window-data)
+  - [Event hooks](#event-hooks)
+- [Claude Code integration](#claude-code-integration)
+- [Architecture](#architecture)
+- [Performance](#performance)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Known limitations](#known-limitations)
+- [License](#license)
 
-Requirements: Hyprland, Quickshell 0.3+, `jq`, `curl`, Python 3 (installer only),
-a Nerd Font (`JetBrainsMono Nerd Font` by default).
+## Features
 
-## Install / uninstall
+- **Three states, one shape.** Collapsed pill, hover, and an expanded view that is flush with the top
+  of the screen. Width, height and corner shape animate as one spring-driven silhouette.
+- **Click-through.** Only the pill, its side bubble and the clock take mouse input; the rest of the top
+  edge stays clickable.
+- **Modular.** A module is a folder with a `manifest.json` and a QML file. Drop it into
+  `~/.config/island/modules/`, and it gets a generated page in Settings. Disabled modules are never
+  loaded, so they cost nothing.
+- **Priority and bubbles.** When two modules are live, the higher priority takes the pill and the
+  runner-up becomes a small bubble beside it. A module can mark itself urgent to take over at once.
+- **Scripts and hooks.** Feed a module from any script or API with a manifest `source`, and run your own
+  executables whenever an event fires (track changed, window focused, Claude session needs you...).
+- **Window awareness.** Focused window, open windows and workspace events are available to modules,
+  scripts and hooks.
+- **Settings panel.** Enable and disable modules, reorder them, edit every option, manage hooks, tune the
+  look. Every change is saved immediately and hot-reloaded.
+- **Standalone clock.** Centered while the island is idle, to the right of it while the island is
+  showing something, and hidden in fullscreen.
+- **Light.** No polling; timers run only while something visible needs them. See
+  [Performance](#performance).
+
+## Requirements
+
+- Hyprland, running in hyprlang (`hyprland.conf`) mode
+- Quickshell 0.3 or newer (Qt 6; tested with 6.11)
+- `jq`, `curl`
+- Python 3 (installer and tests only)
+- A Nerd Font (`JetBrainsMono Nerd Font` by default; configurable)
+- Optional: `qt6-shadertools` to rebuild the shader, `playerctl` for testing the music module
+
+Hyprland's Lua config mode is not covered: the island itself runs, but the installer edits hyprlang
+files and `island-ctl focus` is untested there.
+
+## Installation
 
 ```sh
-scripts/install.sh --dry-run     # see exactly what would change
-scripts/install.sh               # links config hypr waybar
-scripts/install.sh claude        # merge the Claude Code hooks (new sessions only)
+git clone <this repository> islandDock && cd islandDock
+
+scripts/install.sh --dry-run     # show exactly what would change
+scripts/install.sh               # links, config, Hyprland rules, Waybar
+scripts/install.sh claude        # optional: Claude Code hooks (new sessions only)
+
 hyprctl reload && killall -SIGUSR2 waybar
 qs -c island                     # or log out and in; it autostarts afterwards
-
-scripts/uninstall.sh             # removes everything below, keeps your modules and hooks
 ```
 
-Everything outside this repo that the installer touches:
+Run from the repository during development instead with `qs -p quickshell/island`.
+
+### What the installer changes
+
+Everything outside this repository that it touches, and how to undo it:
 
 | File | Change | Undo |
 |---|---|---|
@@ -52,36 +94,88 @@ Everything outside this repo that the installer touches:
 | `~/.config/hypr/UserConfigs/WindowRules.conf` | blur rules for the `island` and `island-settings` layers | marker block removed |
 | `~/.config/hypr/UserConfigs/UserKeybinds.conf` | `SUPER+ALT+I` toggles the island, `SUPER+ALT+S` opens Settings | marker block removed |
 | Waybar config (target of `~/.config/waybar/config`) | `clock` and `custom/swaync` leave the top bar's center; swaync moves to the right | `.bak-island` restored |
-| `~/.claude/settings.json` | 12 hook entries, backup in `settings.json.bak-island` | exactly those entries removed |
+| `~/.claude/settings.json` | 12 hook entries (backup: `settings.json.bak-island`) | exactly those entries removed |
 
-Marker blocks look like `# >>> island >>>` ... `# <<< island <<<`; re-running the installer
-refreshes them. The three Hyprland files are the dots' user-owned ones, so dots upgrades leave
-them alone. The Waybar file is dots-managed: after a dots upgrade, re-run `scripts/install.sh waybar`.
-Runtime files live in `$XDG_RUNTIME_DIR/island/` and `~/.cache/island/art/`.
-`~/.config/island/modules/` and `hooks/` are yours and are never removed while they hold files.
+Edits are wrapped in `# >>> island >>>` / `# <<< island <<<` markers and are refreshed when you re-run
+the installer. The Hyprland files are the user-owned ones of KooL's Hyprland-Dots, so upgrades of the dots
+leave them alone; the Waybar file is dots-managed, so re-run `scripts/install.sh waybar` after an upgrade.
+Runtime state lives in `$XDG_RUNTIME_DIR/island/` and `~/.cache/island/art/`.
 
-## Settings
+### Uninstall
 
-Open with `SUPER+ALT+S`, `island-ctl settings [tab]`, or right-click the clock. Esc, the close
-button, or a click outside closes it. Every change is saved to `config.json` immediately, and each
-setting has a reset arrow once you have changed it.
+```sh
+scripts/uninstall.sh             # then: hyprctl reload && killall -SIGUSR2 waybar
+scripts/uninstall.sh --keep-config
+```
 
-- **General**: monitor, stay above fullscreen windows, clock, hover timings.
-- **Modules**: switch each module on or off, reorder with the arrows (or type a priority number),
-  see its status and script status, and edit its options. Options are generated from the module's
-  `manifest.json`, so your own modules get a settings page for free.
-- **Hooks**: every discovered hook script with an on/off switch and a Test button, the event
-  catalog, and a live event log while the tab is open.
-- **Appearance**: opacity, font, sizes, expanded size, edge flare, colours, spring, window area.
-- **Advanced**: file locations, rescan, open the config in your editor, restart, reset everything.
+`~/.config/island/modules/` and `hooks/` are yours: they are never deleted while they contain files.
 
-A disabled module is never loaded: it costs nothing and its script does not run.
+## Usage
+
+### Keybinds
+
+| Keys | Action |
+|---|---|
+| `SUPER` + `ALT` + `I` | Toggle the island open or closed |
+| `SUPER` + `ALT` + `S` | Open Settings (press again to close) |
+
+Pointer: hover the pill to grow it, click to expand, move away to collapse. Click the side bubble to
+bring the runner-up module to the front. Right-click the clock to open Settings.
+
+### Settings
+
+Open with `SUPER+ALT+S`, `island-ctl settings [tab]`, or by right-clicking the clock. Esc, the close
+button, or a click outside closes it. Each setting gets a reset arrow once you change it.
+
+| Tab | What it does |
+|---|---|
+| General | Which monitor, stay above fullscreen windows, the clock, hover timings |
+| Modules | Switch modules on or off, reorder them (arrows or priority number), see their status, edit their options |
+| Hooks | Discovered hook scripts with on/off and test buttons, the event catalog, a live event log |
+| Appearance | Opacity, font, sizes (hover and expanded), edge flare, colours, spring, window area |
+| Advanced | File locations, rescan, open the config in your editor, restart, reset everything |
+
+### `island-ctl`
+
+A small CLI for scripts and keybinds.
+
+```sh
+island-ctl push --id vol --title "Volume 40%" --icon 󰕾 --progress 40 --timeout 2
+island-ctl push --id build --title "Build failed" --subtitle "exit 2" --color "#FF453A" --timeout 0
+island-ctl clear --id build            # or --all
+island-ctl list                        # active cards and Claude sessions
+island-ctl toggle | expand | collapse | swap
+island-ctl settings [tab]
+island-ctl modules                     # enabled, priority and status per module
+island-ctl module enable|disable|up|down <id>
+island-ctl module priority <id> <n>
+island-ctl reload                      # rescan modules and hook scripts
+island-ctl windows | focused           # window data as JSON
+island-ctl emit <event> [json]         # put an event on the bus (runs hooks)
+island-ctl config get [path] | set <path> <json> | reset <path>    # dotted path
+island-ctl keep-on-top on|off|toggle|config [--save]
+island-ctl status | focus <pid> | restart
+```
+
+`--icon` takes a Nerd Font glyph, an emoji or an absolute image path. `--timeout 0` keeps a card until it
+is cleared or dismissed. Cards are files, so pushing works while the island is stopped.
+
+## Built-in modules
+
+| Module | Priority | What it shows |
+|---|---|---|
+| **Music** (`spotify`) | 60 | Now playing from Spotify or any MPRIS player: art with a progress ring, title and artist on hover, and a seekable player with transport controls when expanded. Prefers Spotify; the order is configurable |
+| **Claude Code** (`claude`) | 55 (100 when red, 40 when done) | One dot for the most important session state, a list of every session when expanded. See [Claude Code integration](#claude-code-integration) |
+| **Cards** (`external`) | 70 | Temporary cards pushed with `island-ctl push`, with optional progress bar |
+| **Active window** (`windowfocus`) | 62 | Flashes the focused window's app and title when focus changes; lists every open window when expanded. Off by default |
+
+The clock is not a module; see [Configuration](#configuration).
 
 ## Configuration
 
 `~/.config/island/config.json` is deep-merged over the defaults in
-`quickshell/island/core/Config.qml`. Edit it by hand (hot-reloaded) or through Settings. Only put
-what you want to change. Per-module settings live under `modules.<id>`:
+`quickshell/island/core/Config.qml`. Edit it by hand (it is hot-reloaded) or through Settings, and put
+only what you want to change in it. Per-module settings live under `modules.<id>`:
 
 ```json
 {
@@ -95,31 +189,42 @@ what you want to change. Per-module settings live under `modules.<id>`:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `monitor.policy` / `monitor.name` | `"focused"` / `""` | `"focused"`, `"primary"` (uses `name`) or `"all"` |
+| `monitor.policy`, `monitor.name` | `"focused"`, `""` | `"focused"`, `"primary"` (uses `name`) or `"all"` |
 | `layer.keepOnTop` | `true` | `true`: overlay layer, stays above fullscreen windows. `false`: normal layer, fullscreen windows cover it |
-| `clock.enabled` / `format` / `dateFormat` / `gap` | on / `HH:mm:ss` / long date / 14 | The standalone clock. Without an `s` in `format` it only wakes once a minute |
+| `clock.enabled`, `format`, `hideInFullscreen`, `gap` | on, `HH:mm:ss`, on, 14 | The standalone clock (a Qt date format). Without an `s` in `format` it only wakes once a minute |
+| `sizes.hoverScale` | 0.85 | Hover views are drawn at this fraction of their design size |
 | `sizes.expandedScale` | 1.2 | Expanded views are drawn this much larger than their design size |
 | `sizes.flare` | 22 | Radius of the concave flares into the top edge (0 removes them) |
 | `sizes.collapsedHeight`, `sizes.maxRadius` | 24, 24 | Pill geometry |
-| `window.width/height/marginTop` | 920 / 460 / 3 | The invisible area the pill and clock move in; must exceed the biggest expanded pill plus the clock |
-| `timings.hoverInMs` / `hoverOutMs` | 80 / 250 | Hover intent and leave delay |
-| `timings.expandedLeaveMs` / `expandedIdleMs` | 600 / 5000 | Expanded collapses this long after the pointer leaves / when never hovered |
-| `timings.collapseOnLeave` | `true` | Disable to keep it expanded until toggled |
+| `window.width`, `height`, `marginTop` | 920, 460, 3 | Upper limit of the invisible window the pill moves in (the window is only as big as what is shown) |
+| `timings.hoverInMs`, `hoverOutMs` | 80, 250 | Hover intent and leave delay |
+| `timings.expandedLeaveMs`, `expandedIdleMs` | 600, 5000 | Expanded collapses this long after the pointer leaves, or when never hovered |
+| `timings.collapseOnLeave` | `true` | Turn off to keep it expanded until toggled |
 | `behavior.focusGrab` | `false` | Experimental click-outside-to-collapse. On Hyprland 0.56 it stops hover from being reported while expanded |
-| `spring.spring/damping/epsilon` | 3.0 / 0.32 / 0.25 | Animation feel. Lower damping is bouncier |
-| `colors.bgAlpha`, `colors.running/needsInput/done` | 0.9, orange, red, green | Background opacity and Claude status colours |
-| `font.family/size` | JetBrainsMono Nerd Font / 13 | |
-| `hooks.enabled/timeoutSec/minIntervalMs/disabled` | on / 10 / 250 / `[]` | Event hook runner |
-| `modules.<id>.enabled/priority/options` | from the manifest | Per-module settings |
+| `spring.spring`, `damping`, `epsilon` | 3.2, 0.44, 0.5 | Animation feel. Lower damping is bouncier but keeps the compositor redrawing for longer |
+| `colors.bgAlpha` | 0.9 | Background opacity. Blur comes from the Hyprland layer rule |
+| `colors.running`, `needsInput`, `done` | orange, red, green | Claude status colours |
+| `font.family`, `font.size` | JetBrainsMono Nerd Font, 13 | |
+| `hooks.enabled`, `timeoutSec`, `minIntervalMs`, `disabled` | on, 10, 250, `[]` | The event hook runner |
+| `modules.<id>.enabled`, `priority`, `options` | from the manifest | Per-module settings |
 
 Older configs with flat `spotify`, `claude`, `external`, `enabled` and `priorities` keys are migrated
 automatically and rewritten in the `modules` layout the first time Settings saves.
 
-## Writing a module
+## Extending Island
 
-A module is a folder with a `manifest.json` and a QML file whose root is an `Activity`.
-Put it in `~/.config/island/modules/<id>/` (built-ins live in `quickshell/island/modules/`),
-then `island-ctl reload` and enable it in Settings. A complete one is in
+| You want to | Do this |
+|---|---|
+| Show something new on the island | [Write a module](#writing-a-module) in `~/.config/island/modules/<id>/` |
+| Feed a module from a script or API | Add a [`source`](#scripts-as-data-sources) to its manifest |
+| Run a script when something happens | Put an executable in `~/.config/island/hooks/<event>/` ([Event hooks](#event-hooks)) |
+| Send a one-off message from a shell script | `island-ctl push` |
+
+### Writing a module
+
+A module is a folder with a `manifest.json` and a QML file whose root is an `Activity`. Put it in
+`~/.config/island/modules/<id>/` (the built-ins live in `quickshell/island/modules/`), run
+`island-ctl reload` and enable it in Settings. A complete example is in
 [`docs/examples/hello`](docs/examples/hello).
 
 ```
@@ -128,9 +233,9 @@ then `island-ctl reload` and enable it in Settings. A complete one is in
 └── module.qml
 ```
 
-### manifest.json
+**manifest.json**
 
-```json
+```jsonc
 {
   "id": "hello",                    // required: lowercase letters, digits, - _
   "name": "Hello",                  // shown in Settings
@@ -141,19 +246,19 @@ then `island-ctl reload` and enable it in Settings. A complete one is in
   "ambient": false,                 // true: always last in the order, not reorderable
   "subscribe": ["window.*"],        // event patterns delivered to onEventReceived
   "emits": { "hello.waved": "Documented in Settings > Hooks" },
-  "source": { "...": "see Scripts" },
+  "source": { },                    // see "Scripts as data sources"
   "options": [
     { "key": "text", "type": "string", "default": "hello", "label": "Greeting", "description": "..." }
   ]
 }
 ```
 
-Option `type` is one of `bool`, `int`, `real` (give `min` and `max` for a slider, optional `step`
-and `unit`), `string`, `enum` (needs `choices`), `color` (`#RRGGBB`) and `list` (array of strings,
-edited as comma separated text). Read a value with `option("key")` inside a binding and it updates
-live when the user changes it. Validate a manifest with `tests/manifest-test.sh path/to/module`.
+An option's `type` is one of `bool`, `int` and `real` (give `min` and `max` for a slider, optionally
+`step` and `unit`), `string`, `enum` (needs `choices`), `color` (`#RRGGBB`) and `list` (an array of strings,
+edited as comma-separated text). The Settings page for your module is generated from this list. Validate a
+manifest with `tests/manifest-test.sh path/to/module`.
 
-### module.qml
+**module.qml**
 
 ```qml
 import QtQuick
@@ -178,32 +283,29 @@ Activity {
 }
 ```
 
-The `Activity` interface (full comments in `core/Activity.qml`):
+The `Activity` interface (full comments in `quickshell/island/core/Activity.qml`):
 
-- **Properties you set:** `active`, `accent`, `urgent` (takes the island immediately, even
-  mid-hover), `priority` (fallback), `effectivePriority` (override to vary with state, as Claude
-  does), the three sizes, the four views.
-- **Read-only context:** `moduleId`, `manifest`, `basePriority` (Settings > manifest), `option(key)`,
-  `hostMode` (`collapsed`/`hover`/`expanded`), `hostHovered`, `hostPresented`, `hostBubble`.
-- **Lifecycle signals:** `shown`, `hidden`, `modeChanged(mode)`. Gate timers on `hostMode` so nothing
-  runs while your module is not visible.
-- **Callbacks:** `onActivated(mode)` on a click while not expanded (return `false` to handle the
-  click without expanding), `acknowledge()`.
-- **Events:** `emit("name", {data})` puts `<moduleId>.name` on the bus; `onEventReceived(name, data)`
-  gets the events matching `subscribe`.
-- **Script data:** `sourceData`, `sourceStatus`, `onSourceMessage(msg)`.
+| Kind | Members |
+|---|---|
+| You set | `active`, `accent`, `urgent` (takes the island at once, even mid-hover), `priority` (fallback), `effectivePriority` (override to vary with state), the three sizes, the four views |
+| Read-only context | `moduleId`, `manifest`, `basePriority`, `option(key)`, `hostMode` (`collapsed`/`hover`/`expanded`), `hostHovered`, `hostPresented`, `hostBubble` |
+| Lifecycle signals | `shown`, `hidden`, `modeChanged(mode)` |
+| Callbacks | `onActivated(mode)` on a click while not expanded (return `false` to handle the click without expanding), `acknowledge()` |
+| Events | `emit("name", {data})` puts `<moduleId>.name` on the bus; `onEventReceived(name, data)` receives events matching `subscribe` |
+| Script data | `sourceData`, `sourceStatus`, `onSourceMessage(msg)` |
 
-Rules of thumb: no polling, timers only while something visible needs them, and never errors when
-your data source is missing. Edits to a user module apply after `island-ctl restart` (the
-built-in ones hot-reload while you develop with `qs -p quickshell/island`).
+`option("key")` read inside a binding updates live when the user changes the setting. Keep to the rules the
+built-ins follow: no polling, timers only while something visible needs them (gate them on `hostMode`),
+and no errors when your data source is missing. Edits to a user module apply after `island-ctl restart`;
+the built-ins hot-reload while you develop with `qs -p quickshell/island`.
 
-### Scripts (`source`)
+### Scripts as data sources
 
-A module can be fed by a script the island runs and restarts for it, and only while the module is
-enabled. This is how you bring in data from anywhere (an HTTP API, a file, another program) without
-writing QML for the plumbing.
+A module can be fed by a script that the island runs and restarts for it, and only while the module is
+enabled. Use it to bring in data from an HTTP API, a file or another program without writing QML for the
+plumbing.
 
-```json
+```jsonc
 "source": {
   "command": ["python3", "fetch.py"],   // runs in the module's folder
   "mode": "poll",                       // "poll": run every intervalSec. "stream": one long-running process
@@ -213,26 +315,26 @@ writing QML for the plumbing.
 }
 ```
 
-- Every stdout line that is a JSON object becomes `onSourceMessage(msg)` and `sourceData`.
-  Other text arrives as `{"text": "..."}`.
-- A line like `{"_event": "updated", "n": 3}` also emits `<moduleId>.updated` on the bus, so hooks
-  can react to what your script reports.
-- The script sees `ISLAND_MODULE_ID`, `ISLAND_MODULE_DIR`, `ISLAND_CTL` and every option as
+- Every stdout line that is a JSON object becomes `onSourceMessage(msg)` and `sourceData`. Other text
+  arrives as `{"text": "..."}`.
+- A line like `{"_event": "updated", "n": 3}` also emits `<moduleId>.updated` on the event bus, so hooks can
+  react to what your script reports.
+- The script sees `ISLAND_MODULE_ID`, `ISLAND_MODULE_DIR`, `ISLAND_CTL`, and every module option as
   `ISLAND_OPT_<KEY>`. It restarts when an option changes. stderr goes to the island's log.
-- `sourceStatus` is `running`, `ok`, `error: ...`, or `exited (code), restarting in Ns`; Settings
-  shows it on the module's card.
+- `sourceStatus` is `running`, `ok`, `error: ...`, or `exited (code), restarting in Ns`; Settings shows it
+  on the module's card.
 
 ### Window data
 
-The `Windows` singleton (event driven, backed by Hyprland) is available to every module and script:
+The `Windows` singleton (event driven, backed by Hyprland) is available to every module:
 `Windows.focused`, `Windows.list`, `Windows.count`, `Windows.workspace`, `Windows.workspaceFullscreen`.
-Each window has `address`, `title`, `class`, `initialClass`, `pid`, `workspace`, `floating`,
-`fullscreen`, `urgent`. From a shell: `island-ctl windows`, `island-ctl focused`.
-`modules/windowfocus` is a small module built on it (off by default).
+Each window has `address`, `title`, `class`, `initialClass`, `pid`, `workspace`, `floating`, `maximized`,
+`fullscreen` (real fullscreen only; a maximized window keeps the bars visible) and `urgent`.
+From a shell: `island-ctl windows`, `island-ctl focused`. `modules/windowfocus` is a small module built on it.
 
-## Event hooks
+### Event hooks
 
-An executable file in `~/.config/island/hooks/<event>/` runs every time that event fires:
+An executable in `~/.config/island/hooks/<event>/` runs every time that event fires:
 
 ```sh
 mkdir -p ~/.config/island/hooks/claude.state
@@ -242,118 +344,150 @@ island-ctl reload
 ```
 
 The payload arrives as JSON on stdin, in `$ISLAND_DATA`, and as flat variables `$ISLAND_<FIELD>`
-(`$ISLAND_PROJECT`, `$ISLAND_TO`, ...), plus `$ISLAND_EVENT` and `$ISLAND_CTL`. Hooks run in a pool of
-four, are killed after `hooks.timeoutSec`, and the same script is not restarted within
-`hooks.minIntervalMs`, so a noisy event cannot flood you. Switch single hooks off or test them in
-Settings > Hooks. Events (Settings > Hooks lists them live):
+(for example `$ISLAND_PROJECT` and `$ISLAND_TO`), plus `$ISLAND_EVENT` and `$ISLAND_CTL`. Hooks run in a
+pool of four, are killed after `hooks.timeoutSec`, and the same script is not restarted within
+`hooks.minIntervalMs`, so a noisy event cannot flood you. Switch single hooks off, or test them, in
+Settings > Hooks.
 
 | Event | Payload |
 |---|---|
 | `window.focus`, `window.title` | address, title, class, pid, workspace |
 | `window.open`, `window.close`, `workspace.change` | address, class, title, workspace / name |
 | `spotify.track` | title, artist, album, player |
-| `spotify.state` | state (`playing`/`paused`), player |
+| `spotify.state` | state (`playing` or `paused`), player |
 | `claude.state` | session, project, from, to (`running`, `needs_input`, `done`, `error`, `idle`, `ended`) |
 | `external.card` | id, title, subtitle |
 | `island.mode`, `island.primary`, `island.ready` | mode, activity |
 | `<module>.<name>` | whatever the module or its script emits |
 
-Test one without waiting for it: `island-ctl emit claude.state '{"to":"needs_input","project":"demo"}'`.
+Try one without waiting for it: `island-ctl emit claude.state '{"to":"needs_input","project":"demo"}'`.
 
-## island-ctl
+## Claude Code integration
 
-```sh
-island-ctl push --id vol --title "Volume 40%" --icon 󰕾 --progress 40 --timeout 2
-island-ctl push --id build --title "Build failed" --subtitle "exit 2" --color "#FF453A" --timeout 0
-island-ctl clear --id build        # or --all
-island-ctl list                    # active cards and Claude sessions
-island-ctl toggle | expand | collapse | swap
-island-ctl settings [tab]
-island-ctl modules                 # enabled, priority, status per module
-island-ctl module enable|disable|up|down <id>   |   island-ctl module priority <id> <n>
-island-ctl reload                  # rescan modules and hook scripts
-island-ctl windows | focused       # JSON
-island-ctl emit <event> [json]
-island-ctl config get [path] | set <path> <json> | reset <path>    # dotted path
-island-ctl keep-on-top on|off|toggle|config [--save]
-island-ctl status | focus <pid> | restart
-```
+`hooks/claude-island-hook.sh` is registered for 12 Claude Code events and writes one JSON file per session,
+atomically, to `$XDG_RUNTIME_DIR/island/claude/<session_id>.json`, then rewrites `.tick` in place. The island
+watches only `.tick` (Quickshell can watch files, not directories) and rescans. State files survive island
+restarts and work with the island stopped. Clicking a session row focuses the terminal it runs in.
+(These are Claude Code's hooks; the [event hooks](#event-hooks) above are the island's.)
 
-`--icon` is a Nerd Font glyph/emoji or an absolute image path. `--timeout 0` makes a card sticky.
-Cards are files, so pushing works while the island is stopped.
-
-## Claude Code bridge
-
-`hooks/claude-island-hook.sh` is registered for 12 Claude Code events and writes one file per
-session, atomically, to `$XDG_RUNTIME_DIR/island/claude/<session_id>.json`, then rewrites `.tick`
-in place. The island watches only `.tick` (Quickshell can watch files, not directories) and rescans.
-State files survive island restarts and work with the island stopped. (These are Claude Code's
-hooks; the *event hooks* above are the island's.)
-
-| Event | State |
+| Claude Code event | State |
 |---|---|
 | `SessionStart` (startup, resume, clear, fork) | idle (registered) |
-| `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionDenied`, `ElicitationResult` | running |
-| `PermissionRequest`, `Elicitation`, `Notification` (`permission_prompt`, `elicitation_dialog`, `agent_needs_input`) | needs_input (red) |
+| `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionDenied`, `ElicitationResult` | running (orange) |
+| `PermissionRequest`, `Elicitation`, `Notification` (`permission_prompt`, `elicitation_dialog`, `agent_needs_input`) | needs input (red) |
 | `Stop` | done (green); running if `background_tasks` is non-empty |
 | `StopFailure` | error (red) |
 | `Notification` `idle_prompt`, `SubagentStop`, `SessionStart` (compact) | no change |
 | `SessionEnd` | session removed |
 
-The hook prints nothing, always exits 0, has a 2 s timeout and does nothing if `jq` or the runtime
-dir is missing. It averages about 16 ms. Known limits:
+Green clears when you click it or hover over it for 3 seconds. Sessions whose process has died, or that have
+been silent past `staleTimeoutMin`, are dropped. The hook prints nothing, always exits 0, has a 2 s timeout,
+does nothing if `jq` or the runtime directory is missing, and takes about 16 ms.
 
-- **Red stays until the next event after you approve.** Claude Code has no "permission granted"
-  hook, so after approving a long-running tool the pill stays red until `PostToolUse`.
-- `PreToolUse` is deliberately not hooked: `UserPromptSubmit` and `PostToolUse` already cover
-  "running", and skipping it halves per-tool-call overhead.
-- Claude Code reports `Notification` hooks as not firing in the VS Code extension;
-  `PermissionRequest` is the primary red trigger for that reason.
-- Window focusing walks the session's process tree up to a Hyprland client. In Lua-mode Hyprland
-  (`hyprland.lua`) `island-ctl focus` uses a best-effort `hyprctl dispatch` Lua expression that has
-  **not** been tested; hyprlang mode is tested.
+## Architecture
 
-## Layout
+```
+ Claude Code ──hooks──► hooks/claude-island-hook.sh ──► $XDG_RUNTIME_DIR/island/claude/<id>.json ┐
+ island-ctl push ─────► $XDG_RUNTIME_DIR/island/push/<id>.json                                   ├─ .tick (watched)
+ your scripts ────────► module "source" (stdout JSON lines)                                       ┘
+ Spotify / MPRIS ─────► Quickshell.Services.Mpris          Hyprland ──► Windows service
+
+                          ModuleManager ── loads enabled modules (manifest.json + QML)
+                                │
+        Events bus ◄────────────┼────────────► Selector ──► Island window ──► Pill (shader) + Bubble + Clock
+            │                   │                          (one per monitor)
+      Hooks runner         Config (config.json, hot-reload) ◄──── Settings panel
+   (~/.config/island/hooks)
+```
 
 ```
 quickshell/island/
-├── shell.qml            wiring, IPC
+├── shell.qml            wiring and IPC
 ├── core/                island window, pill, config, theme, events, hooks, module manager, windows service
+│   └── shaders/         body.frag (+ compiled .qsb): the pill's outline and fill
 ├── modules/             built-in modules: claude, spotify, external, windowfocus
 ├── components/          shared widgets for modules
 └── settings/            the Settings panel
-bin/island-ctl           CLI
+bin/island-ctl           command line interface
 hooks/                   Claude Code hook
-scripts/                 install, uninstall, settings.json merger
-docs/examples/           hello module, example event hooks
-tests/                   hook-test.sh, manifest-test.sh, fake-mpris.py
+scripts/                 install, uninstall, build-shaders, settings.json merger
+docs/examples/           a minimal module and example event hooks
+tests/                   hook and manifest tests, a fake MPRIS player
 config/                  config.example.json
 ```
 
-## Testing without the real thing
+## Performance
+
+Island is built for a 144 Hz display on an integrated GPU, where a frame is 6.9 ms and the compositor's work
+(compositing plus blur) is the expensive part rather than Qt's:
+
+- The pill's outline and fill are one small fragment shader (`core/shaders/body.frag`, a signed distance
+  field), not a tessellated path plus an offscreen clipping pass. After editing it, run
+  `scripts/build-shaders.sh` (needs `qt6-shadertools`).
+- The input mask is computed from where the pill is going, so it changes once per mode change instead of
+  being sent to the compositor on every frame.
+- The window is only as big as what is on screen (760x110 collapsed or hovered, just tall enough for the
+  expanded view otherwise). Everything in it is composited, and with a blur rule blurred, on every frame of
+  an animation. It resizes on mode changes, never mid-animation.
+- The spring settles quickly (`spring.damping`, `spring.epsilon`), so the compositor stops redrawing sooner.
+- Nothing runs while idle apart from the clock's own tick.
+
+Measured on the development machine (six expand and collapse cycles, blur on): island CPU use fell from
+9.0% to 6.5%. Hyprland's own cost stays near 9% because a translucent island needs the blur on every frame.
+To make it cheaper, raise `colors.bgAlpha` and use `layerrule = match:namespace island, blur off` in your
+Hyprland config, or lower your global `decoration:blur:passes`.
+
+## Development
 
 ```sh
-tests/hook-test.sh                       # Claude hook state machine, in a private runtime dir
-tests/manifest-test.sh                   # validate module manifests
-python3 tests/fake-mpris.py              # fake "Spotify" for playerctl and the island
-python3 tests/fake-mpris.py --no-length  # ad/podcast with length 0
-island-ctl emit window.focus '{"class":"demo","title":"hi"}'    # drive modules and hooks
-echo '{"session_id":"t","cwd":"/tmp/demo","hook_event_name":"PermissionRequest"}' | hooks/claude-island-hook.sh
-island-ctl status                        # what the island thinks is live
-hyprctl layers | grep island             # layers, sizes, namespaces
+qs -p quickshell/island          # run from the repository; built-in modules hot-reload
+qs log -c island                 # the island's log
+island-ctl status                # what the island thinks is live
+hyprctl layers | grep island     # layers, sizes and namespaces
 ```
 
-During development run it straight from the repo with `qs -p quickshell/island`;
-`qs log -c island` shows its log.
+Tests and test tools:
+
+```sh
+tests/hook-test.sh                       # the Claude hook's state machine, in a private runtime dir
+tests/manifest-test.sh [dir ...]         # validate module manifests
+python3 tests/fake-mpris.py              # a fake music player (generated art, fictional tracks)
+python3 tests/fake-mpris.py --no-length  # an ad or podcast with length 0
+island-ctl emit window.focus '{"class":"demo","title":"hi"}'    # drive modules and hooks
+echo '{"session_id":"t","cwd":"/tmp/demo","hook_event_name":"PermissionRequest"}' | hooks/claude-island-hook.sh
+```
+
+Notes for contributors: the shared API for modules is imported as `qs.core` and `qs.components`; editing a
+file with `sed -i` replaces its inode and breaks Quickshell's file watch (use an editor that writes in place,
+or run `island-ctl restart`); and `scripts/build-shaders.sh` must be re-run after changing a `.frag` file.
 
 ## Troubleshooting
 
-- **Nothing shows:** `qs log -c island`, and `hyprctl layers | grep island`.
-- **Two clocks:** Waybar's top bar still has `clock` in `modules-center`; run `scripts/install.sh waybar`.
-- **No blur:** `hyprctl reload`, then `island-ctl restart` so the layer rules apply to a fresh surface.
-- **My module is not listed:** `island-ctl reload`, then check Settings > Modules for an error card
+- **Nothing shows.** Check `qs log -c island` and `hyprctl layers | grep island`.
+- **Two clocks.** Waybar's top bar still has `clock` in `modules-center`; run `scripts/install.sh waybar`.
+- **No blur.** Run `hyprctl reload`, then `island-ctl restart` so the layer rules apply to a fresh surface.
+- **My module is not listed.** Run `island-ctl reload`, then look for an error card in Settings > Modules
   (invalid manifest, duplicate id, QML error). `tests/manifest-test.sh <dir>` explains manifest problems.
-- **A hook never runs:** it must be executable, in a folder named exactly like the event, and not
-  switched off in Settings > Hooks. Its last failure is shown there.
-- **Claude never lights up:** hooks apply to sessions started after `install.sh claude`. Check
+- **A hook never runs.** It must be executable, in a folder named exactly like the event, and not switched
+  off in Settings > Hooks, where its last failure is also shown.
+- **Claude never lights up.** Hooks apply to sessions started after `scripts/install.sh claude`. Check
   `ls $XDG_RUNTIME_DIR/island/claude` while a session runs.
+- **The island feels choppy.** See [Performance](#performance); the compositor's blur is the usual cost.
+
+## Known limitations
+
+- Hyprland only, and only the hyprlang config mode is supported by the installer. Lua-mode Hyprland is not
+  tested; `island-ctl focus` uses a best-effort dispatch there.
+- **Red stays until the next event after you approve a permission.** Claude Code has no "permission granted"
+  hook, so the pill stays red until the next `PostToolUse`.
+- `PreToolUse` is deliberately not hooked: `UserPromptSubmit` and `PostToolUse` already cover "running",
+  and skipping it halves the per-tool-call overhead.
+- Claude Code reports `Notification` hooks as not firing in the VS Code extension; `PermissionRequest` is
+  the primary red trigger for that reason.
+- `behavior.focusGrab` (click outside to collapse) is experimental and off by default.
+- Developed and tested on a single machine and monitor; multi-monitor and fractional scaling are supported
+  by design but lightly exercised.
+
+## License
+
+No license has been chosen yet. Until a `LICENSE` file is added, all rights are reserved by the author.
