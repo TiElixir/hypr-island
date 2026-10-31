@@ -64,7 +64,13 @@ Singleton {
             // Hovering a green pill this long (cumulative) acknowledges it.
             hoverAckMs: 3000,
             // 0 = green stays until clicked or hovered. > 0 = also fade after N s.
-            doneFadeSec: 0
+            doneFadeSec: 0,
+            // Clicking a session row focuses the terminal window it runs in.
+            focusOnClick: true
+        },
+        external: {
+            // Used when `island-ctl push` gives no --timeout of its own.
+            defaultTimeoutSec: 5
         },
         // Higher wins the primary slot, the runner-up becomes the side bubble.
         priorities: {

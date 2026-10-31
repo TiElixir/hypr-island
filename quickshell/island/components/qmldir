@@ -3,3 +3,4 @@ ArtCircle 1.0 ArtCircle.qml
 SeekBar 1.0 SeekBar.qml
 IconButton 1.0 IconButton.qml
 StateDot 1.0 StateDot.qml
+GlyphIcon 1.0 GlyphIcon.qml

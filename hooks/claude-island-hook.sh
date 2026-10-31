@@ -106,7 +106,7 @@ main() {
   local tmp="$dir/.$sid.$$.tmp"
   jq -cn \
     --arg id "$sid" --arg state "$new" --arg cwd "$cwd" --arg event "$event" \
-    --arg project "$(basename "${cwd:-$sid}")" \
+    --arg project "$(basename "${CLAUDE_PROJECT_DIR:-${cwd:-$sid}}")" \
     --argjson ts "$now_ns" --argjson since "$since" \
     --argjson pid "${pid:-0}" --arg pidstart "$pidstart" \
     '{id:$id, state:$state, cwd:$cwd, project:$project, ts:$ts, since:$since,

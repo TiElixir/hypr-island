@@ -62,6 +62,9 @@ ShellRoot {
         function collapse(): void {
             UiBus.collapseRequested();
         }
+        function swap(): void {
+            UiBus.swapRequested();
+        }
         // mode: "on" | "off" | "toggle" | "config" (follow config.json)
         function keepOnTop(mode: string): string {
             if (mode === "on")

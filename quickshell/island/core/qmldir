@@ -5,3 +5,5 @@ Activity 1.0 Activity.qml
 Selector 1.0 Selector.qml
 Island 1.0 Island.qml
 Pill 1.0 Pill.qml
+singleton Feed 1.0 Feed.qml
+Bubble 1.0 Bubble.qml

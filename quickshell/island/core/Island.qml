@@ -32,19 +32,33 @@ PanelWindow {
     // hover/expanded view is never swapped out from under the pointer.
     property var current: null
     readonly property var primary: selector.primary
+    // Set when the side bubble was clicked: that activity stays in front
+    // until it ends or something urgent arrives.
+    property var pinned: null
+    readonly property var wanted: pinned !== null && pinned.live ? pinned : primary
 
     function sync() {
-        if (primary === null) {
+        if (wanted === null) {
             current = null;
             mode = "collapsed";
             return;
         }
         if (current === null || !current.live) {
-            current = primary;
+            current = wanted;
             mode = "collapsed";
-        } else if (mode === "collapsed" || (primary.urgent && current !== primary)) {
-            current = primary;
+        } else if (mode === "collapsed" || (wanted.urgent && current !== wanted)) {
+            current = wanted;
         }
+    }
+
+    // The runner-up, shown as a bubble. The ambient clock never is one.
+    readonly property var bubbleAct: {
+        const l = selector.sorted;
+        for (let i = 0; i < l.length; i++) {
+            if (l[i] !== current && !l[i].ambient)
+                return l[i];
+        }
+        return null;
     }
 
     property var _prev: null
@@ -59,7 +73,20 @@ PanelWindow {
         }
         _prev = current;
     }
-    onPrimaryChanged: sync()
+    onPrimaryChanged: {
+        if (primary !== null && primary.urgent)
+            pinned = null;
+        sync();
+    }
+    onWantedChanged: sync()
+
+    function swapToBubble() {
+        if (bubbleAct === null)
+            return;
+        pinned = bubbleAct === primary ? null : bubbleAct;
+        mode = "collapsed";
+        current = wanted;
+    }
     onModeChanged: {
         sync();
         if (current)
@@ -90,6 +117,9 @@ PanelWindow {
         }
         function onCollapseRequested() {
             win.mode = "collapsed";
+        }
+        function onSwapRequested() {
+            win.swapToBubble();
         }
     }
 
@@ -135,6 +165,13 @@ PanelWindow {
         y: 0
         width: Math.ceil(pill.visible ? pill.width : 0)
         height: Math.ceil(pill.visible ? pill.height : 0)
+
+        Region {
+            x: Math.max(0, Math.floor(bubble.x))
+            y: 0
+            width: bubble.visible ? Math.ceil(bubble.width) : 0
+            height: bubble.visible ? Math.ceil(bubble.height) : 0
+        }
     }
 
     Pill {
@@ -148,5 +185,14 @@ PanelWindow {
             if (expand !== false)
                 win.mode = "expanded";
         }
+    }
+
+    Bubble {
+        id: bubble
+        act: win.bubbleAct
+        shown: win.bubbleAct !== null && win.mode !== "expanded"
+        x: pill.x + pill.width + 8
+        y: 0
+        onClicked: win.swapToBubble()
     }
 }

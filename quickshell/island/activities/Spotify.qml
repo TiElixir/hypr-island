@@ -158,6 +158,20 @@ Activity {
         }
     }
 
+    bubbleView: Component {
+        Item {
+            ArtCircle {
+                anchors.centerIn: parent
+                width: 20
+                height: 20
+                source: root.artSource
+                progress: root.progress
+                showRing: root.hasLength
+                ringColor: root.accent
+            }
+        }
+    }
+
     hoverView: Component {
         Item {
             ArtCircle {

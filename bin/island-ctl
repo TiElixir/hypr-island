@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# island-ctl: talk to the Island widget from any shell script.
+#
+#   island-ctl push  --id ID [--title T] [--subtitle S] [--icon GLYPH|/path.png]
+#                    [--color #RRGGBB|name] [--progress 0-100] [--timeout SEC]
+#                    [--priority N]
+#   island-ctl clear (--id ID | --all)
+#   island-ctl list
+#   island-ctl toggle | expand | collapse | swap
+#   island-ctl keep-on-top on|off|toggle|config [--save]
+#   island-ctl status
+#   island-ctl focus PID            focus the window that owns process PID
+#   island-ctl restart
+#
+# push/clear write files under $XDG_RUNTIME_DIR/island/push, so they work even
+# while the island is not running (cards appear when it starts). --timeout 0
+# keeps a card until it is cleared or dismissed.
+set -u
+
+RUNTIME="${XDG_RUNTIME_DIR:-}"
+DIR="$RUNTIME/island"
+PUSH="$DIR/push"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/island/config.json"
+
+die() { echo "island-ctl: $*" >&2; exit 1; }
+need_runtime() { [ -n "$RUNTIME" ] || die "XDG_RUNTIME_DIR is not set"; }
+valid_id() { [[ "$1" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]; }
+tick() { mkdir -p "$DIR" && printf '%s' "$(date +%s%N)" >"$DIR/.tick"; }
+qsipc() { qs ipc -c island call island "$@"; }
+
+default_timeout() {
+  local t=5
+  [ -r "$CONFIG" ] && t=$(jq -r '.external.defaultTimeoutSec // 5' "$CONFIG" 2>/dev/null || echo 5)
+  echo "$t"
+}
+
+cmd_push() {
+  need_runtime
+  command -v jq >/dev/null || die "jq is required"
+  local id="" title="" subtitle="" icon="" color="" progress="" timeout="" priority=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --id) id="${2-}"; shift 2 ;;
+      --title) title="${2-}"; shift 2 ;;
+      --subtitle) subtitle="${2-}"; shift 2 ;;
+      --icon) icon="${2-}"; shift 2 ;;
+      --color) color="${2-}"; shift 2 ;;
+      --progress) progress="${2-}"; shift 2 ;;
+      --timeout) timeout="${2-}"; shift 2 ;;
+      --priority) priority="${2-}"; shift 2 ;;
+      *) die "push: unknown option $1" ;;
+    esac
+  done
+  [ -n "$id" ] || die "push: --id is required"
+  valid_id "$id" || die "push: --id may only contain letters, digits, . _ -"
+  [ -n "$title" ] || [ -n "$subtitle" ] || [ -n "$icon" ] || die "push: give at least --title, --subtitle or --icon"
+  [ -z "$progress" ] || [[ "$progress" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "push: --progress must be a number 0-100"
+  [ -z "$timeout" ] || [[ "$timeout" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "push: --timeout must be seconds"
+  [ -z "$priority" ] || [[ "$priority" =~ ^-?[0-9]+$ ]] || die "push: --priority must be an integer"
+  [ -n "$timeout" ] || timeout=$(default_timeout)
+
+  local now; now=$(date +%s.%N)
+  mkdir -p "$PUSH" || die "cannot create $PUSH"
+  local tmp="$PUSH/.$id.$$.tmp"
+  jq -cn --arg id "$id" --arg title "$title" --arg subtitle "$subtitle" --arg icon "$icon" \
+    --arg color "$color" --arg progress "$progress" --arg priority "$priority" \
+    --argjson timeout "$timeout" --argjson now "$now" '
+    {id:$id, title:$title, subtitle:$subtitle, icon:$icon, color:$color, created:$now,
+     expires:(if $timeout > 0 then $now + $timeout else 0 end)}
+    + (if $progress != "" then {progress:($progress|tonumber)} else {} end)
+    + (if $priority != "" then {priority:($priority|tonumber)} else {} end)' >"$tmp" \
+    || { rm -f "$tmp"; die "push: could not write card"; }
+  mv -f "$tmp" "$PUSH/$id.json"
+  tick
+}
+
+cmd_clear() {
+  need_runtime
+  case "${1:-}" in
+    --all) rm -f "$PUSH"/*.json 2>/dev/null ;;
+    --id) valid_id "${2-}" || die "clear: bad --id"; rm -f "$PUSH/$2.json" ;;
+    *) die "clear: use --id ID or --all" ;;
+  esac
+  tick
+}
+
+cmd_list() {
+  need_runtime
+  local f any=0
+  for f in "$PUSH"/*.json "$DIR"/claude/*.json; do
+    [ -f "$f" ] || continue
+    any=1
+    case "$f" in
+      */push/*) jq -r '"push    \(.id)\t\(.title) \(.subtitle)"' "$f" ;;
+      *) jq -r '"claude  \(.project)\t\(.state) (since \(.since | strftime("%H:%M:%S")))"' "$f" ;;
+    esac
+  done
+  [ "$any" = 1 ] || echo "nothing active"
+}
+
+cmd_keep_on_top() {
+  local mode="${1:-}" save=0
+  [ "${2:-}" = "--save" ] && save=1
+  case "$mode" in on | off | toggle | config) ;; *) die "keep-on-top: use on|off|toggle|config [--save]" ;; esac
+  local result; result=$(qsipc keepOnTop "$mode") || die "island is not running"
+  echo "keep-on-top: $result"
+  if [ "$save" = 1 ]; then
+    command -v jq >/dev/null || die "jq is required for --save"
+    [ "$result" = "on" ] && val=true || val=false
+    mkdir -p "$(dirname "$CONFIG")"
+    [ -f "$CONFIG" ] || echo '{}' >"$CONFIG"
+    jq --argjson v "$val" '.layer.keepOnTop = $v' "$CONFIG" >"$CONFIG.tmp.$$" && mv -f "$CONFIG.tmp.$$" "$CONFIG"
+    qsipc keepOnTop config >/dev/null
+    echo "saved to $CONFIG"
+  fi
+}
+
+# Walk up the process tree from PID until a process owns a Hyprland window.
+cmd_focus() {
+  local pid="${1:-}"
+  [[ "$pid" =~ ^[0-9]+$ ]] || die "focus: need a numeric PID"
+  command -v hyprctl >/dev/null || die "hyprctl not found"
+  local clients addr="" p="$pid" i
+  clients=$(hyprctl clients -j 2>/dev/null) || die "hyprctl clients failed"
+  for i in $(seq 1 20); do
+    [ "$p" -gt 1 ] 2>/dev/null || break
+    addr=$(jq -r --argjson p "$p" '[.[] | select(.pid == $p)][0].address // empty' <<<"$clients")
+    [ -n "$addr" ] && break
+    p=$(sed 's/^.*) //' "/proc/$p/stat" 2>/dev/null | awk '{print $2}')
+    [ -n "$p" ] || break
+  done
+  [ -n "$addr" ] || die "no window found for pid $pid"
+  if [ -n "${ISLAND_DRY_RUN:-}" ]; then echo "would focus $addr (pid $p)"; return; fi
+  if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua" ]; then
+    # Lua mode parses dispatch arguments as Lua. UNVERIFIED on this machine
+    # (the config here is hyprlang); adjust if your Hyprland version differs.
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
+  else
+    hyprctl dispatch focuswindow "address:$addr" >/dev/null
+  fi
+}
+
+cmd_restart() {
+  qs kill -c island >/dev/null 2>&1
+  sleep 0.3
+  setsid -f qs -c island --no-duplicate >/dev/null 2>&1
+  echo "restarted"
+}
+
+sub="${1:-}"
+[ $# -gt 0 ] && shift
+case "$sub" in
+  push) cmd_push "$@" ;;
+  clear) cmd_clear "$@" ;;
+  list) cmd_list ;;
+  toggle | expand | collapse | swap) qsipc "$sub" || die "island is not running" ;;
+  keep-on-top) cmd_keep_on_top "$@" ;;
+  status) qsipc status || die "island is not running" ;;
+  focus) cmd_focus "$@" ;;
+  restart) cmd_restart ;;
+  -h | --help | help | "") sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command '$sub' (try island-ctl help)" ;;
+esac

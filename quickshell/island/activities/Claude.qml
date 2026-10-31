@@ -14,8 +14,7 @@ Activity {
 
     activityId: "claude"
 
-    readonly property string stateDir: Quickshell.env("XDG_RUNTIME_DIR") + "/island"
-    readonly property string claudeDir: stateDir + "/claude"
+    readonly property string claudeDir: Feed.stateDir + "/claude"
     readonly property var cfg: Config.cfg.claude
 
     // ---- model --------------------------------------------------------------
@@ -60,21 +59,9 @@ Activity {
     expandedSize: Qt.size(390, 46 + rows * 34)
 
     // ---- watching + scanning ------------------------------------------------
-    Process {
-        id: init
-        running: true
-        command: ["sh", "-c", 'mkdir -p "$1/claude"; [ -e "$1/.tick" ] || : > "$1/.tick"', "sh", root.stateDir]
-        onExited: {
-            tick.path = root.stateDir + "/.tick";
-            scanTimer.restart();
-        }
-    }
-    FileView {
-        id: tick
-        watchChanges: true
-        printErrors: false
-        onFileChanged: {
-            reload();
+    Connections {
+        target: Feed
+        function onChanged() {
             scanTimer.restart();
         }
     }
@@ -213,6 +200,18 @@ Activity {
         return true;
     }
 
+    // Focus the terminal window a session runs in (island-ctl walks the
+    // process tree up to a Hyprland client).
+    Process {
+        id: focusProc
+    }
+    function focusSession(s) {
+        if (!cfg.focusOnClick || !(Number(s.pid) > 0) || focusProc.running)
+            return;
+        focusProc.command = [Feed.ctl, "focus", String(s.pid)];
+        focusProc.running = true;
+    }
+
     // Hovering green for a cumulative hoverAckMs also acknowledges it.
     property int dwellMs: 0
     onTopStateChanged: dwellMs = 0
@@ -269,6 +268,16 @@ Activity {
                     font.pixelSize: Theme.fontSize - 1
                     font.weight: Font.DemiBold
                 }
+            }
+        }
+    }
+
+    bubbleView: Component {
+        Item {
+            StateDot {
+                anchors.centerIn: parent
+                size: 10
+                color: root.accent
             }
         }
     }
@@ -350,7 +359,7 @@ Activity {
                             anchors.margins: 1
                             radius: 10
                             color: Theme.fg
-                            opacity: rowMouse.containsMouse && row.modelData.state === "done" ? 0.08 : 0
+                            opacity: rowMouse.containsMouse ? 0.08 : 0
                         }
                         StateDot {
                             id: rd
@@ -397,9 +406,12 @@ Activity {
                             id: rowMouse
                             anchors.fill: parent
                             hoverEnabled: true
-                            cursorShape: row.modelData.state === "done" ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            onClicked: if (row.modelData.state === "done")
-                                root.ackSessions([row.modelData.id])
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (row.modelData.state === "done")
+                                    root.ackSessions([row.modelData.id]);
+                                root.focusSession(row.modelData);
+                            }
                         }
                     }
                 }

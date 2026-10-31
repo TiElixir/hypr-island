@@ -24,7 +24,7 @@ QtObject {
 
     readonly property bool enabled: Config.cfg.enabled[activityId] !== false
     readonly property bool live: enabled && active
-    readonly property int effectivePriority: {
+    property int effectivePriority: {
         const o = Config.cfg.priorities[activityId];
         return o !== undefined ? o : priority;
     }

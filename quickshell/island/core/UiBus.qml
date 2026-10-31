@@ -10,6 +10,8 @@ Singleton {
     signal toggleRequested
     signal expandRequested
     signal collapseRequested
+    // Same as clicking the side bubble: swap the runner-up to the front.
+    signal swapRequested
 
     // null = follow config.json, otherwise a runtime override from island-ctl.
     property var keepOnTopOverride: null
