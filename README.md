@@ -69,7 +69,7 @@ files and `island-ctl focus` is untested there.
 ## Installation
 
 ```sh
-git clone <this repository> islandDock && cd islandDock
+git clone https://github.com/TiElixir/hypr-island.git && cd hypr-island
 
 scripts/install.sh --dry-run     # show exactly what would change
 scripts/install.sh               # links, config, Hyprland rules, Waybar
