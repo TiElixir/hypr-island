@@ -8,6 +8,7 @@ QtObject {
 
     property QtObject clock: Clock {}
     property QtObject spotify: Spotify {}
+    property QtObject claude: Claude {}
 
-    readonly property var all: [clock, spotify]
+    readonly property var all: [clock, spotify, claude]
 }

@@ -42,13 +42,28 @@ PanelWindow {
         if (current === null || !current.live) {
             current = primary;
             mode = "collapsed";
-        } else if (mode === "collapsed") {
+        } else if (mode === "collapsed" || (primary.urgent && current !== primary)) {
             current = primary;
         }
+    }
+
+    property var _prev: null
+    onCurrentChanged: {
+        if (_prev && _prev !== current) {
+            _prev.hostMode = "collapsed";
+            _prev.hostHovered = false;
+        }
+        if (current) {
+            current.hostMode = mode;
+            current.hostHovered = hovered;
+        }
+        _prev = current;
     }
     onPrimaryChanged: sync()
     onModeChanged: {
         sync();
+        if (current)
+            current.hostMode = mode;
         // Expanded without the pointer (keybind / IPC): don't linger forever.
         if (mode === "expanded" && !hovered && Config.cfg.timings.collapseOnLeave) {
             leaveTimer.interval = Config.cfg.timings.expandedIdleMs;
@@ -80,6 +95,8 @@ PanelWindow {
 
     readonly property bool hovered: pill.hovered
     onHoveredChanged: {
+        if (current)
+            current.hostHovered = hovered;
         if (hovered) {
             leaveTimer.stop();
             if (mode === "collapsed")

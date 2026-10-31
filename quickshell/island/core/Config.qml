@@ -55,6 +55,17 @@ Singleton {
             // Keep showing a paused player for this long, then fall back.
             pausedLingerSec: 60
         },
+        claude: {
+            // Sessions silent for this long are dropped (a running session
+            // with a live process is exempt, long tools send no events).
+            staleTimeoutMin: 30,
+            // How often dead processes are swept, only while sessions exist.
+            sweepSec: 30,
+            // Hovering a green pill this long (cumulative) acknowledges it.
+            hoverAckMs: 3000,
+            // 0 = green stays until clicked or hovered. > 0 = also fade after N s.
+            doneFadeSec: 0
+        },
         // Higher wins the primary slot, the runner-up becomes the side bubble.
         priorities: {
             claude_needs_input: 100,

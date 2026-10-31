@@ -19,6 +19,8 @@ QtObject {
     // Ambient activities (the clock) are always present and render blended
     // into the bar when collapsed.
     property bool ambient: false
+    // Urgent activities take over the island immediately, even mid-hover.
+    property bool urgent: false
 
     readonly property bool enabled: Config.cfg.enabled[activityId] !== false
     readonly property bool live: enabled && active
@@ -49,6 +51,10 @@ QtObject {
     }
     function acknowledge() {
     }
+
+    // ---- host state, written by the island showing this activity ---------
+    property string hostMode: "collapsed"
+    property bool hostHovered: false
 
     // ---- activity -> host -------------------------------------------------
     // Ask the island to promote this activity now and pulse.
