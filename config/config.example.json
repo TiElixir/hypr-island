@@ -1,8 +1,8 @@
 {
   "monitor": { "policy": "focused", "name": "" },
   "layer": { "keepOnTop": true },
-  "clock": { "format": "HH:mm:ss" },
-  "spotify": { "playerPriority": ["spotify", "*"], "pausedLingerSec": 60 },
+  "clock": { "enabled": true, "format": "HH:mm:ss" },
+  "sizes": { "expandedScale": 1.2, "flare": 22 },
   "colors": {
     "bgAlpha": 0.9,
     "running": "#FF9F0A",
@@ -14,5 +14,8 @@
     "hoverOutMs": 250,
     "expandedLeaveMs": 600,
     "collapseOnLeave": true
+  },
+  "modules": {
+    "spotify": { "options": { "playerPriority": ["spotify", "*"] } }
   }
 }

@@ -18,12 +18,21 @@ DRY=0
 say() { printf '  %s\n' "$*"; }
 run() { if [ "$DRY" = 1 ]; then say "[dry-run] $*"; else "$@"; fi; }
 
+# Writes our marker block into a file. An existing block is replaced, so
+# re-running the installer after an update refreshes it.
 add_block() { # file, content
   local file="$1" content="$2"
   if [ ! -f "$file" ]; then say "skip: $file does not exist"; return; fi
-  if grep -qF "$BEGIN" "$file"; then say "already present: $file"; return; fi
-  say "append block: $file"
+  local have=""
+  if grep -qF "$BEGIN" "$file"; then
+    have=1
+    local current
+    current=$(sed -n "/^$BEGIN\$/,/^$END\$/p" "$file" | sed '1d;$d')
+    if [ "$current" = "$content" ]; then say "up to date: $file"; return; fi
+  fi
+  if [ -n "$have" ]; then say "replace block: $file"; else say "append block: $file"; fi
   if [ "$DRY" = 0 ]; then
+    [ -n "$have" ] && sed -i "/^$BEGIN\$/,/^$END\$/d" "$file"
     printf '\n%s\n%s\n%s\n' "$BEGIN" "$content" "$END" >>"$file"
   fi
 }
@@ -52,8 +61,12 @@ step_hypr() {
   add_block "$USERCFG/Startup_Apps.conf" 'exec-once = qs -c island  # Island (Dynamic-Island style widget)'
   add_block "$USERCFG/WindowRules.conf" 'layerrule = match:namespace island, blur on
 layerrule = match:namespace island, ignore_alpha 0.3
-layerrule = match:namespace island, no_anim on'
-  add_block "$USERCFG/UserKeybinds.conf" 'bindd = $mainMod ALT, I, toggle island, exec, qs ipc -c island call island toggle'
+layerrule = match:namespace island, no_anim on
+layerrule = match:namespace island-settings, blur on
+layerrule = match:namespace island-settings, ignore_alpha 0.3
+layerrule = match:namespace island-settings, no_anim on'
+  add_block "$USERCFG/UserKeybinds.conf" 'bindd = $mainMod ALT, I, toggle island, exec, qs ipc -c island call island toggle
+bindd = $mainMod ALT, S, island settings, exec, $HOME/.local/bin/island-ctl settings'
   say "apply with: hyprctl reload"
 }
 

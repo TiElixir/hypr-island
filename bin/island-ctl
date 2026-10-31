@@ -7,6 +7,14 @@
 #   island-ctl clear (--id ID | --all)
 #   island-ctl list
 #   island-ctl toggle | expand | collapse | swap
+#   island-ctl settings [general|modules|hooks|appearance|advanced]
+#   island-ctl modules              list modules: enabled, priority, status
+#   island-ctl module enable|disable|up|down ID
+#   island-ctl module priority ID N
+#   island-ctl reload               rescan modules and hook scripts
+#   island-ctl windows | focused    open windows / the focused one (JSON)
+#   island-ctl emit NAME [JSON]     put an event on the bus (runs hooks)
+#   island-ctl config get [PATH] | set PATH JSON | reset PATH   (dotted PATH)
 #   island-ctl keep-on-top on|off|toggle|config [--save]
 #   island-ctl status
 #   island-ctl focus PID            focus the window that owns process PID
@@ -30,7 +38,7 @@ qsipc() { qs ipc -c island call island "$@"; }
 
 default_timeout() {
   local t=5
-  [ -r "$CONFIG" ] && t=$(jq -r '.external.defaultTimeoutSec // 5' "$CONFIG" 2>/dev/null || echo 5)
+  [ -r "$CONFIG" ] && t=$(jq -r '.modules.external.options.defaultTimeoutSec // .external.defaultTimeoutSec // 5' "$CONFIG" 2>/dev/null || echo 5)
   echo "$t"
 }
 
@@ -140,6 +148,45 @@ cmd_focus() {
   fi
 }
 
+running() { qsipc status >/dev/null 2>&1 || die "island is not running"; }
+
+cmd_modules() {
+  running
+  command -v jq >/dev/null || { qsipc modules; return; }
+  qsipc modules | jq -r '.[] | [(if .enabled then "on " else "off" end), (.priority // "-" | tostring), .id, .status, (if .source != "" then "script: " + .source else "" end)] | @tsv' | column -t -s $'\t'
+}
+
+cmd_module() {
+  running
+  local action="${1:-}" id="${2:-}"
+  [ -n "$id" ] || die "module: need an action and a module id (see: island-ctl modules)"
+  case "$action" in
+    enable) qsipc enable "$id" true ;;
+    disable) qsipc enable "$id" false ;;
+    up) qsipc moveModule "$id" -1 ;;
+    down) qsipc moveModule "$id" 1 ;;
+    priority) [[ "${3:-}" =~ ^-?[0-9]+$ ]] || die "module priority: need an integer"; qsipc setPriority "$id" "$3" ;;
+    *) die "module: use enable|disable|up|down|priority" ;;
+  esac
+}
+
+cmd_emit() {
+  running
+  [ -n "${1:-}" ] || die "emit: need an event name"
+  [[ "$1" =~ ^[A-Za-z0-9_.-]+$ ]] || die "emit: bad event name"
+  qsipc emit "$1" "${2:-{\}}"
+}
+
+cmd_config() {
+  running
+  case "${1:-}" in
+    get) qsipc config "${2:-}" ;;
+    set) [ -n "${2:-}" ] && [ -n "${3:-}" ] || die "config set: need PATH and JSON (strings need quotes: '\"text\"')"; qsipc configSet "$2" "$3" ;;
+    reset) [ -n "${2:-}" ] || die "config reset: need PATH"; qsipc configReset "$2" ;;
+    *) die "config: use get [PATH] | set PATH JSON | reset PATH" ;;
+  esac
+}
+
 cmd_restart() {
   qs kill -c island >/dev/null 2>&1
   sleep 0.3
@@ -154,10 +201,18 @@ case "$sub" in
   clear) cmd_clear "$@" ;;
   list) cmd_list ;;
   toggle | expand | collapse | swap) qsipc "$sub" || die "island is not running" ;;
+  settings) running; qsipc settings "${1:-}" ;;
+  modules) cmd_modules ;;
+  module) cmd_module "$@" ;;
+  reload) running; qsipc reload ;;
+  windows) running; qsipc windows ;;
+  focused) running; qsipc focused ;;
+  emit) cmd_emit "$@" ;;
+  config) cmd_config "$@" ;;
   keep-on-top) cmd_keep_on_top "$@" ;;
   status) qsipc status || die "island is not running" ;;
   focus) cmd_focus "$@" ;;
   restart) cmd_restart ;;
-  -h | --help | help | "") sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h | --help | help | "") sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$sub' (try island-ctl help)" ;;
 esac

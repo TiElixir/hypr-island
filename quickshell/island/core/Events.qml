@@ -22,6 +22,7 @@ Singleton {
         "window.open": { description: "A window opened", fields: "address, class, title, workspace" },
         "window.close": { description: "A window closed", fields: "address" },
         "workspace.change": { description: "The focused workspace changed", fields: "name" },
+        "island.ready": { description: "The island finished starting", fields: "" },
         "island.mode": { description: "The pill went collapsed / hover / expanded", fields: "mode, activity" },
         "island.primary": { description: "A different module took the pill", fields: "activity" },
         "spotify.track": { description: "The playing track changed", fields: "title, artist, album, player" },

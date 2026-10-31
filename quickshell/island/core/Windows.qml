@@ -15,7 +15,7 @@ Singleton {
         const o = t.lastIpcObject || {};
         const ws = o.workspace || (t.workspace ? { id: t.workspace.id, name: t.workspace.name } : {});
         return {
-            address: String(t.address),
+            address: String(t.address).indexOf("0x") === 0 ? String(t.address) : "0x" + String(t.address),
             title: String(t.title),
             "class": String(o["class"] || ""),
             initialClass: String(o.initialClass || ""),

@@ -33,7 +33,18 @@ fi
 
 if [ -x "$REPO/scripts/claude-hooks.py" ]; then python3 -I "$REPO/scripts/claude-hooks.py" uninstall || true; fi
 
-[ "$KEEP_CONFIG" = 0 ] && rm -rf "$HOME/.config/island" && say "removed ~/.config/island"
+# ~/.config/island also holds YOUR modules/ and hooks/. Only remove what the
+# installer created (config.json); delete the folder only if nothing is left.
+if [ "$KEEP_CONFIG" = 0 ]; then
+  rm -f "$HOME/.config/island/config.json" && say "removed ~/.config/island/config.json"
+  rmdir "$HOME/.config/island/hooks" "$HOME/.config/island/modules" 2>/dev/null
+  rmdir "$HOME/.config/island" 2>/dev/null
+  if [ -d "$HOME/.config/island" ]; then
+    say "kept ~/.config/island (it still contains your modules or hooks)"
+  else
+    say "removed empty ~/.config/island"
+  fi
+fi
 rm -rf "${XDG_RUNTIME_DIR:-/nonexistent}/island" "$HOME/.cache/island"
 say "removed runtime and cache dirs"
 echo "done. Now run: hyprctl reload && killall -SIGUSR2 waybar"
