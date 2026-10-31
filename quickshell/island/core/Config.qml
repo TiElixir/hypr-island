@@ -22,8 +22,26 @@ Singleton {
         // keepOnTop: true  -> overlay layer, island stays above fullscreen windows
         //            false -> top layer, fullscreen windows cover it
         layer: { keepOnTop: true },
-        window: { width: 620, height: 270, marginTop: 3 },
-        sizes: { collapsedHeight: 24, maxRadius: 24 },
+        // The window is a fixed, invisible area the pill moves in; it must be
+        // larger than the biggest expanded pill plus the clock beside it.
+        window: { width: 920, height: 460, marginTop: 3 },
+        sizes: {
+            collapsedHeight: 24,
+            maxRadius: 24,
+            // Radius of the concave flares joining an expanded island to the top edge.
+            flare: 22,
+            // Expanded views are drawn this much larger than their design size.
+            expandedScale: 1.2
+        },
+        // The standalone clock (not a module).
+        clock: {
+            enabled: true,
+            // Qt format. Without an "s" the clock only wakes once a minute.
+            format: "HH:mm:ss",
+            dateFormat: "dddd, d MMMM yyyy",
+            // Space between the island (or its bubble) and the clock.
+            gap: 14
+        },
         timings: {
             hoverInMs: 80,
             hoverOutMs: 250,
@@ -165,12 +183,25 @@ Singleton {
     // Configs written before modules had manifests keep working; saving rewrites
     // them in the modules.<id> layout.
     function normalize(u) {
-        const legacy = ["clock", "spotify", "claude", "external", "enabled", "priorities"];
-        if (!legacy.some(k => u[k] !== undefined))
+        const legacy = ["spotify", "claude", "external", "enabled", "priorities"];
+        const hasClockModule = isObj(u.modules) && u.modules.clock !== undefined;
+        if (!legacy.some(k => u[k] !== undefined) && !hasClockModule)
             return u;
         const out = clone(u);
         for (const k of legacy)
             delete out[k];
+        // The clock used to be a module; it is now the standalone clock.
+        if (hasClockModule) {
+            const old = out.modules.clock;
+            delete out.modules.clock;
+            out.clock = isObj(out.clock) ? out.clock : {};
+            if (isObj(old.options))
+                for (const k of ["format", "dateFormat"])
+                    if (old.options[k] !== undefined)
+                        out.clock[k] = old.options[k];
+            if (old.enabled !== undefined)
+                out.clock.enabled = old.enabled;
+        }
         const mods = out.modules = isObj(out.modules) ? out.modules : {};
         const mod = id => (mods[id] = isObj(mods[id]) ? mods[id] : {});
         const opts = id => (mod(id).options = isObj(mod(id).options) ? mod(id).options : {});
@@ -179,7 +210,7 @@ Singleton {
                 mod(id).enabled = u.enabled[id] !== false;
         if (isObj(u.priorities)) {
             const p = u.priorities;
-            for (const id of ["clock", "spotify", "external"])
+            for (const id of ["spotify", "external"])
                 if (p[id] !== undefined)
                     mod(id).priority = p[id];
             if (p.claude_running !== undefined)
@@ -189,7 +220,7 @@ Singleton {
             if (p.claude_done !== undefined)
                 opts("claude").priorityDone = p.claude_done;
         }
-        for (const id of ["clock", "spotify", "claude", "external"])
+        for (const id of ["spotify", "claude", "external"])
             if (isObj(u[id]))
                 for (const k in u[id])
                     opts(id)[k] = u[id][k];

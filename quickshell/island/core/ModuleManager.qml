@@ -253,6 +253,8 @@ Scope {
         setPriority(below, pa);
     }
     function move(id, dir) {
+        if (dir === 0)
+            return;
         const list = ordered.filter(m => m.manifest.ambient !== true);
         const i = list.findIndex(m => m.id === id);
         const j = i + dir;

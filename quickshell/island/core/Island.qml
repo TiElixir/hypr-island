@@ -16,7 +16,9 @@ PanelWindow {
     color: "transparent"
 
     anchors.top: true
-    margins.top: Config.cfg.window.marginTop
+    // The window sits at the very top of the screen so the expanded island
+    // can be flush with the edge; the pill itself is offset by window.marginTop.
+    margins.top: 0
     implicitWidth: Config.cfg.window.width
     implicitHeight: Config.cfg.window.height
     exclusionMode: ExclusionMode.Ignore
@@ -179,13 +181,32 @@ PanelWindow {
         x: Math.max(0, Math.floor(pill.x))
         y: 0
         width: Math.ceil(pill.visible ? pill.width : 0)
-        height: Math.ceil(pill.visible ? pill.height : 0)
+        height: Math.ceil(pill.visible ? pill.y + pill.height : 0)
 
+        // the two flares beside an attached pill
+        Region {
+            x: Math.max(0, Math.floor(pill.x - pill.flareExtent))
+            y: 0
+            width: Math.ceil(pill.visible ? pill.flareExtent : 0)
+            height: Math.ceil(pill.visible ? pill.flareExtent : 0)
+        }
+        Region {
+            x: Math.max(0, Math.floor(pill.x + pill.width))
+            y: 0
+            width: Math.ceil(pill.visible ? pill.flareExtent : 0)
+            height: Math.ceil(pill.visible ? pill.flareExtent : 0)
+        }
         Region {
             x: Math.max(0, Math.floor(bubble.x))
-            y: 0
+            y: Math.max(0, Math.floor(bubble.y))
             width: bubble.visible ? Math.ceil(bubble.width) : 0
             height: bubble.visible ? Math.ceil(bubble.height) : 0
+        }
+        Region {
+            x: Math.max(0, Math.floor(clock.x))
+            y: Math.max(0, Math.floor(clock.y))
+            width: clock.visible ? Math.ceil(clock.width) : 0
+            height: clock.visible ? Math.ceil(clock.height) : 0
         }
     }
 
@@ -206,8 +227,24 @@ PanelWindow {
         id: bubble
         act: win.bubbleAct
         shown: win.bubbleAct !== null && win.mode !== "expanded"
-        x: pill.x + pill.width + 8
-        y: 0
+        x: pill.x + pill.width + pill.flareExtent + 8
+        y: pill.y
         onClicked: win.swapToBubble()
+    }
+
+    // The clock is never part of the island. Idle: centered in the bar.
+    // With the island showing something: to the right of it (and its bubble).
+    ClockWidget {
+        id: clock
+        readonly property real islandEdge: bubble.visible ? bubble.x + bubble.width : pill.x + pill.width + pill.flareExtent
+        x: pill.visible ? Math.round(islandEdge + Config.cfg.clock.gap) : Math.round((win.width - width) / 2)
+        y: Math.round(Config.cfg.window.marginTop + (Config.cfg.sizes.collapsedHeight - height) / 2)
+        Behavior on x {
+            enabled: !pill.visible || Math.abs(pill.width - pill.target.width) < 2
+            NumberAnimation {
+                duration: 260
+                easing.type: Easing.OutCubic
+            }
+        }
     }
 }

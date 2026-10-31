@@ -12,3 +12,4 @@ SourceRunner 1.0 SourceRunner.qml
 Island 1.0 Island.qml
 Pill 1.0 Pill.qml
 Bubble 1.0 Bubble.qml
+ClockWidget 1.0 ClockWidget.qml

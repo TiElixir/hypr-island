@@ -1,1 +1,15 @@
 SettingsPanel 1.0 SettingsPanel.qml
+SToggle 1.0 SToggle.qml
+SSlider 1.0 SSlider.qml
+STextField 1.0 STextField.qml
+SChoice 1.0 SChoice.qml
+SButton 1.0 SButton.qml
+SSection 1.0 SSection.qml
+SettingRow 1.0 SettingRow.qml
+ModuleCard 1.0 ModuleCard.qml
+GeneralTab 1.0 GeneralTab.qml
+ModulesTab 1.0 ModulesTab.qml
+HooksTab 1.0 HooksTab.qml
+AppearanceTab 1.0 AppearanceTab.qml
+AdvancedTab 1.0 AdvancedTab.qml
+TabPage 1.0 TabPage.qml
