@@ -27,11 +27,15 @@ QtObject {
     property int backoff: 0
     property int errLines: 0
 
+    // Every module option, or only the keys listed in the source's "options"
+    // (so changing a display-only setting does not restart the script).
     function allOptions() {
         const o = {};
         const list = inst.manifest.options || [];
+        const only = Array.isArray(spec.options) ? spec.options : null;
         for (let i = 0; i < list.length; i++)
-            o[list[i].key] = inst.option(list[i].key);
+            if (only === null || only.indexOf(list[i].key) >= 0)
+                o[list[i].key] = inst.option(list[i].key);
         return o;
     }
     function environmentNow() {

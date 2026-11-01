@@ -17,6 +17,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 shape;     // x: left edge of the body, y: body width, z: body height, w: bottom corner radius
     vec4 shape2;    // x: top corner radius, y: flare radius, z: unused, w: unused
     vec4 tint;      // rgb: fill colour, a: opacity
+    vec4 glow;      // rgb: pulse colour, a: pulse strength (0 = off)
 } ubuf;
 
 float boxSdf(vec2 p, vec2 b) {
@@ -51,6 +52,15 @@ float shapeSdf(vec2 p) {
 void main() {
     float d = shapeSdf(qt_TexCoord0 * ubuf.size);
     float cover = clamp(0.5 - d, 0.0, 1.0);          // 1 px anti-aliased edge
-    float a = ubuf.tint.a * cover * ubuf.qt_Opacity;
-    fragColor = vec4(ubuf.tint.rgb * a, a);          // premultiplied
+    float a = ubuf.tint.a * cover;
+    vec3 rgb = ubuf.tint.rgb * a;                     // premultiplied
+    // Pulse: a 2.5 px ring just inside the outline plus a soft inner glow.
+    if (ubuf.glow.a > 0.002) {
+        float ring = clamp(1.0 - abs(d + 1.5) / 1.5, 0.0, 1.0);
+        float inner = 0.45 * exp(min(d, 0.0) / 6.0);
+        float g = ubuf.glow.a * max(ring, inner) * cover;
+        rgb = rgb * (1.0 - g) + ubuf.glow.rgb * g;
+        a = a * (1.0 - g) + g;
+    }
+    fragColor = vec4(rgb, a) * ubuf.qt_Opacity;
 }

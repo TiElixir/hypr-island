@@ -86,6 +86,51 @@ Item {
             shown = act;
         else if (shown !== act)
             swapAnim.restart();
+        if (act && act.pulseAt > Date.now() - 1500)
+            startPulse();
+    }
+
+    // ---- pulse: a coloured ring requested with Activity.pulse() ---------------
+    property color glowColor: "white"
+    property real glow: 0
+    property int glowBeats: 2
+    function startPulse() {
+        glowColor = act.pulseColor;
+        glowBeats = act.pulseBeats;
+        pulseAnim.restart();
+    }
+    Connections {
+        target: root.act
+        ignoreUnknownSignals: true
+        function onPulseSerialChanged() {
+            root.startPulse();
+        }
+    }
+    SequentialAnimation {
+        id: pulseAnim
+        SequentialAnimation {
+            loops: root.glowBeats
+            NumberAnimation {
+                target: root
+                property: "glow"
+                to: 1
+                duration: 140
+                easing.type: Easing.OutQuad
+            }
+            NumberAnimation {
+                target: root
+                property: "glow"
+                to: 0.2
+                duration: 420
+                easing.type: Easing.InOutQuad
+            }
+        }
+        NumberAnimation {
+            target: root
+            property: "glow"
+            to: 0
+            duration: 380
+        }
     }
 
     SequentialAnimation {
@@ -121,6 +166,7 @@ Item {
         property vector4d shape: Qt.vector4d(root.flareMax, root.width, root.height, root.rb)
         property vector4d shape2: Qt.vector4d(root.corner * (1 - root.attach), root.flareExtent, 0, 0)
         property vector4d tint: Qt.vector4d(Theme.bg.r, Theme.bg.g, Theme.bg.b, Config.cfg.colors.bgAlpha)
+        property vector4d glow: Qt.vector4d(root.glowColor.r, root.glowColor.g, root.glowColor.b, root.glow)
         fragmentShader: Qt.resolvedUrl("shaders/body.frag.qsb")
     }
 

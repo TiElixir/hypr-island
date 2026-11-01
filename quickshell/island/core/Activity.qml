@@ -102,6 +102,20 @@ QtObject {
     // Ask the island to promote this activity now and pulse.
     signal attention
 
+    // Flash a coloured ring around the pill: pulse("#30D158") or pulse(color, beats).
+    // Plays when this activity is the main pill, or as soon as it becomes it
+    // (within 1.5 s), so it can be combined with turning `urgent` on.
+    property color pulseColor: accent
+    property int pulseBeats: 2
+    property int pulseSerial: 0
+    property real pulseAt: 0
+    function pulse(color, beats) {
+        pulseColor = color === undefined ? accent : color;
+        pulseBeats = beats === undefined ? 2 : Math.max(1, Math.min(6, beats));
+        pulseAt = Date.now();
+        pulseSerial++;
+    }
+
     function sizeFor(mode) {
         return mode === "expanded" ? expandedSize : mode === "hover" ? hoverSize : collapsedSize;
     }
