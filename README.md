@@ -18,6 +18,7 @@ Tested on Arch Linux with Hyprland 0.56.2, Quickshell 0.3.1 and Qt 6.11.
 - [Installation](#installation)
 - [Usage](#usage)
 - [Built-in modules](#built-in-modules)
+  - [F1 live timing](#f1-live-timing)
 - [Configuration](#configuration)
 - [Extending Island](#extending-island)
   - [Writing a module](#writing-a-module)
@@ -168,8 +169,35 @@ is cleared or dismissed. Cards are files, so pushing works while the island is s
 | **Claude Code** (`claude`) | 55 (100 when red, 40 when done) | One dot for the most important session state, a list of every session when expanded. See [Claude Code integration](#claude-code-integration) |
 | **Cards** (`external`) | 70 | Temporary cards pushed with `island-ctl push`, with optional progress bar |
 | **Active window** (`windowfocus`) | 62 | Flashes the focused window's app and title when focus changes; lists every open window when expanded. Off by default |
+| **F1 Live** (`f1`) | 66 | Live race timing for your driver: sector colours, race status, pit stops, penalties, position changes. Off by default. See [F1 live timing](#f1-live-timing) |
 
 The clock is not a module; see [Configuration](#configuration).
+
+### F1 live timing
+
+Enable **F1 Live** in Settings > Modules (or `island-ctl module enable f1`), then expand the island during
+a session and pick your driver, or set **My driver** (`44` or `HAM`) in its settings.
+
+Data comes from F1's own live-timing feed (`livetiming.formula1.com`), the source OpenF1 and FastF1 are
+built on. It is free and needs no account; OpenF1's free tier only serves finished sessions. The module's
+script (`modules/f1/f1feed.py`, Python standard library only) connects while a session is on or within an
+hour of its start, and checks again every 10 minutes otherwise. It shows nothing between sessions.
+
+Every part is a switch in the module's settings, so you can turn them on and off during a race:
+
+| Switch | What you get |
+|---|---|
+| Lap times island | Position, three sector bars and the last lap, coloured purple (overall best), green (personal best) or yellow. Hover for sector times, tyre and interval; expand for minisectors, best lap, gaps and stops |
+| Race status | Yellow flag (with sectors), VSC, safety car, red flag and chequered flag: a popup and a pulse when it changes, and a chip on the pill while it lasts |
+| Pit stop popup | When your driver pits: *BOX BOX* on pit entry, then the new compound, stop time and pit lane time |
+| Penalty popup | Time, drive-through and stop-and-go penalties, for all drivers or only yours |
+| Position pulse | A green ring when your driver gains a place, red when one is lost, with a small ▲/▼ badge |
+
+**Sessions** picks Grands Prix and sprints only (default) or practice and qualifying too. The module emits
+`f1.status`, `f1.pit`, `f1.penalty` and `f1.position`, so [event hooks](#event-hooks) can react to them.
+The feed is unofficial and undocumented; if F1 changes it, the module shows nothing until it is updated.
+Stop times come from F1's pit-stop feed, which is not published for every race; the popup then shows the
+lane time only.
 
 ## Configuration
 
@@ -291,6 +319,7 @@ The `Activity` interface (full comments in `quickshell/island/core/Activity.qml`
 | Read-only context | `moduleId`, `manifest`, `basePriority`, `option(key)`, `hostMode` (`collapsed`/`hover`/`expanded`), `hostHovered`, `hostPresented`, `hostBubble` |
 | Lifecycle signals | `shown`, `hidden`, `modeChanged(mode)` |
 | Callbacks | `onActivated(mode)` on a click while not expanded (return `false` to handle the click without expanding), `acknowledge()` |
+| Pulse | `pulse(color, beats)` flashes a coloured ring around the pill (default: `accent`, 2 beats). It plays when the module is the main pill or becomes it within 1.5 s, so it pairs with `urgent` |
 | Events | `emit("name", {data})` puts `<moduleId>.name` on the bus; `onEventReceived(name, data)` receives events matching `subscribe` |
 | Script data | `sourceData`, `sourceStatus`, `onSourceMessage(msg)` |
 
@@ -311,7 +340,8 @@ plumbing.
   "mode": "poll",                       // "poll": run every intervalSec. "stream": one long-running process
   "intervalSec": 30,                    // or "intervalOption": "pollSec" to use a module option
   "timeoutSec": 20,                     // poll mode
-  "restartSec": 5                       // stream mode: restart delay, backs off on repeated failure
+  "restartSec": 5,                      // stream mode: restart delay, backs off on repeated failure
+  "options": ["pollSec"]                // optional: only these options are passed (and restart it)
 }
 ```
 
@@ -320,7 +350,8 @@ plumbing.
 - A line like `{"_event": "updated", "n": 3}` also emits `<moduleId>.updated` on the event bus, so hooks can
   react to what your script reports.
 - The script sees `ISLAND_MODULE_ID`, `ISLAND_MODULE_DIR`, `ISLAND_CTL`, and every module option as
-  `ISLAND_OPT_<KEY>`. It restarts when an option changes. stderr goes to the island's log.
+  `ISLAND_OPT_<KEY>`. It restarts when an option changes (limit both with `"options"`). stderr goes to the
+  island's log.
 - `sourceStatus` is `running`, `ok`, `error: ...`, or `exited (code), restarting in Ns`; Settings shows it
   on the module's card.
 
@@ -357,6 +388,7 @@ Settings > Hooks.
 | `spotify.state` | state (`playing` or `paused`), player |
 | `claude.state` | session, project, from, to (`running`, `needs_input`, `done`, `error`, `idle`, `ended`) |
 | `external.card` | id, title, subtitle |
+| `f1.status`, `f1.pit`, `f1.penalty`, `f1.position` | see [F1 live timing](#f1-live-timing) |
 | `island.mode`, `island.primary`, `island.ready` | mode, activity |
 | `<module>.<name>` | whatever the module or its script emits |
 
@@ -405,7 +437,7 @@ quickshell/island/
 ├── shell.qml            wiring and IPC
 ├── core/                island window, pill, config, theme, events, hooks, module manager, windows service
 │   └── shaders/         body.frag (+ compiled .qsb): the pill's outline and fill
-├── modules/             built-in modules: claude, spotify, external, windowfocus
+├── modules/             built-in modules: claude, spotify, external, windowfocus, f1
 ├── components/          shared widgets for modules
 └── settings/            the Settings panel
 bin/island-ctl           command line interface

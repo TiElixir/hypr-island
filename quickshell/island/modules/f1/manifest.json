@@ -1,0 +1,39 @@
+{
+  "id": "f1",
+  "name": "F1 Live",
+  "description": "Live race timing for your driver from F1's free live-timing feed: sector colours, race status, pit stops, penalties and position changes.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 66,
+  "defaultEnabled": false,
+  "emits": {
+    "f1.status": "Track status changed (code: green, yellow, sc, vsc, vscending, red, chequered; label)",
+    "f1.pit": "Your driver pitted (phase in, then done with compound, new, stop, lane)",
+    "f1.penalty": "A penalty was given (driver, tla, mine, summary, message)",
+    "f1.position": "Your driver's position changed (from, to, gained)"
+  },
+  "source": {
+    "command": ["python3", "-u", "f1feed.py"],
+    "mode": "stream",
+    "restartSec": 5,
+    "options": ["driver", "sessions"]
+  },
+  "options": [
+    { "key": "driver", "type": "string", "default": "", "label": "My driver",
+      "description": "Car number or three-letter code, e.g. 44 or HAM. You can also pick from the expanded island." },
+    { "key": "sessions", "type": "enum", "default": "races", "choices": ["races", "all"], "label": "Sessions",
+      "description": "races: Grands Prix and sprints only. all: practice and qualifying too." },
+    { "key": "showLaps", "type": "bool", "default": true, "label": "Lap times island",
+      "description": "Position, sector colours (purple, green, yellow) and last lap of your driver." },
+    { "key": "showStatus", "type": "bool", "default": true, "label": "Race status",
+      "description": "Yellow flags, VSC, safety car, red flag and the chequered flag." },
+    { "key": "showPit", "type": "bool", "default": true, "label": "Pit stop popup",
+      "description": "New tyres, stop time and pit lane time when your driver pits." },
+    { "key": "showPenalty", "type": "bool", "default": true, "label": "Penalty popup" },
+    { "key": "penaltyScope", "type": "enum", "default": "all", "choices": ["all", "mine"], "label": "Penalties for",
+      "description": "all drivers, or only your driver." },
+    { "key": "showPosition", "type": "bool", "default": true, "label": "Position pulse",
+      "description": "Green ring when your driver gains a place, red when one is lost." },
+    { "key": "popupSec", "type": "int", "default": 6, "min": 2, "max": 30, "label": "Popup time", "unit": "s" }
+  ]
+}
