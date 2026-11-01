@@ -194,7 +194,10 @@ Every part is a switch in the module's settings, so you can turn them on and off
 | Penalty popup | Time, drive-through and stop-and-go penalties, for all drivers or only yours |
 | Position pulse | A green ring when your driver gains a place, red when one is lost, with a small ▲/▼ badge |
 
-**Sessions** picks Grands Prix and sprints only (default) or practice and qualifying too. The module emits
+**Feed delay** holds everything back by up to 180 s so the island matches a TV or stream that runs behind
+live timing; change it during a race and it pauses or catches up without reconnecting. (The `f1.*` bus
+events for hooks are not delayed.) **Sessions** picks Grands Prix and sprints only (default) or practice
+and qualifying too. The module emits
 `f1.status`, `f1.pit`, `f1.penalty` and `f1.position`, so [event hooks](#event-hooks) can react to them.
 The feed is unofficial and undocumented; if F1 changes it, the module shows nothing until it is updated.
 Stop times come from F1's pit-stop feed, which is not published for every race; the popup then shows the

@@ -21,6 +21,8 @@
   "options": [
     { "key": "driver", "type": "string", "default": "", "label": "My driver",
       "description": "Car number or three-letter code, e.g. 44 or HAM. You can also pick from the expanded island." },
+    { "key": "delaySec", "type": "real", "default": 0, "min": 0, "max": 180, "step": 0.5, "label": "Feed delay", "unit": "s",
+      "description": "Hold everything back this long to match a TV or stream that runs behind live timing. Can be changed during a race." },
     { "key": "sessions", "type": "enum", "default": "races", "choices": ["races", "all"], "label": "Sessions",
       "description": "races: Grands Prix and sprints only. all: practice and qualifying too." },
     { "key": "showLaps", "type": "bool", "default": true, "label": "Lap times island",

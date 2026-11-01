@@ -20,7 +20,49 @@ Activity {
     readonly property bool onAir: st !== null && st.live === true && offline === ""
     readonly property string trackCode: st ? st.track.code : "green"
 
+    // ---- feed delay -------------------------------------------------------------
+    // Holds every message back by delaySec, so the island matches a TV or
+    // stream that runs behind live timing. The queue lives here rather than in
+    // the script, so changing the delay mid-race keeps the connection and the
+    // messages already received: more delay pauses, less catches up at once.
+    readonly property real delayMs: Math.max(0, Number(option("delaySec")) || 0) * 1000
+    property var queue: []
+
     onSourceMessage: msg => {
+        if (delayMs <= 0 && queue.length === 0) {
+            apply(msg);
+            return;
+        }
+        queue = queue.concat([{ at: Date.now(), msg: msg }]);
+        if (!releaseTimer.running)
+            armRelease();
+    }
+    onDelayMsChanged: release()
+
+    function release() {
+        const now = Date.now();
+        let i = 0;
+        while (i < queue.length && queue[i].at + delayMs <= now)
+            apply(queue[i++].msg);
+        if (i > 0)
+            queue = queue.slice(i);
+        armRelease();
+    }
+    // One single-shot timer aimed at the next message that is due, never a poll.
+    function armRelease() {
+        if (queue.length === 0) {
+            releaseTimer.stop();
+            return;
+        }
+        releaseTimer.interval = Math.max(20, queue[0].at + delayMs - Date.now());
+        releaseTimer.restart();
+    }
+    Timer {
+        id: releaseTimer
+        onTriggered: root.release()
+    }
+
+    function apply(msg) {
         if (msg.t === "state") {
             st = msg;
             offline = "";
