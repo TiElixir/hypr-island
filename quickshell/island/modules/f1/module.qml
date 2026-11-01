@@ -13,10 +13,37 @@ Activity {
     id: root
 
     // ---- data from f1feed.py -------------------------------------------------
-    property var st: null              // latest {"t":"state"} message
-    property var drivers: []
+    property var st: null              // latest {"t":"state"} message: every car
+    property var drivers: []           // entry list: n, tla, name, team, color
     property string offline: ""
-    readonly property var drv: st ? st.driver : null
+
+    // Your driver and the optional second one, resolved from the entry list.
+    // The feed carries every car, so changing either is instant.
+    function resolveNum(opt) {
+        const want = String(opt || "").trim().toUpperCase();
+        if (want === "")
+            return "";
+        for (const d of drivers)
+            if (d.n === want || d.tla === want)
+                return d.n;
+        return /^[0-9]+$/.test(want) ? want : "";
+    }
+    readonly property string drvNum: resolveNum(option("driver"))
+    readonly property string drv2Num: {
+        const n = resolveNum(option("driver2"));
+        return n === drvNum ? "" : n;
+    }
+    function carOf(num) {
+        if (!st || !num || !st.cars || !st.cars[num])
+            return null;
+        let info = { n: num, tla: num, team: "", color: "#888888" };
+        for (const d of drivers)
+            if (d.n === num)
+                info = { n: num, tla: d.tla, team: d.team, color: d.color };
+        return Object.assign(info, st.cars[num]);
+    }
+    readonly property var drv: carOf(drvNum)
+    readonly property var drv2: carOf(drv2Num)
     readonly property bool onAir: st !== null && st.live === true && offline === ""
     readonly property string trackCode: st ? st.track.code : "green"
 
@@ -84,7 +111,7 @@ Activity {
     readonly property int popupMs: Math.max(2, Number(option("popupSec")) || 6) * 1000
 
     readonly property bool statusShown: statusOn && onAir && trackCode !== "green"
-    readonly property var pit: pitOn && onAir && st ? st.pit : null
+    readonly property var pit: pitOn && onAir && st && st.pits && st.pits[drvNum] ? st.pits[drvNum] : null
 
     // A short-lived popup: {kind, color, title, sub}. Pit stops have their own,
     // fed live while the stop happens.
@@ -119,12 +146,15 @@ Activity {
             const sectors = e.sectors && e.sectors.length ? "Sector " + e.sectors.join(", ") : "";
             showPopup({ kind: "status", color: c, title: statusShort(e.code), sub: e.code === "yellow" ? sectors : e.label }, popupMs);
             pulse(c, e.code === "red" || e.code === "sc" ? 3 : 2);
-        } else if (e._event === "penalty" && penaltyOn && (option("penaltyScope") === "all" || e.mine)) {
+        } else if (e._event === "penalty" && penaltyOn) {
+            const mine = e.driver !== "" && (e.driver === drvNum || e.driver === drv2Num);
+            if (option("penaltyScope") !== "all" && !mine)
+                return;
             showPopup({ kind: "penalty", color: col.penalty, title: (e.tla || "#" + e.driver) + "  " + e.summary, sub: e.message }, popupMs * 2);
-            pulse(col.penalty, e.mine ? 3 : 2);
-        } else if (e._event === "pit" && pitOn && e.phase === "in") {
+            pulse(col.penalty, mine ? 3 : 2);
+        } else if (e._event === "pit" && pitOn && e.phase === "in" && e.driver === drvNum) {
             pulse(col.pit, 2);
-        } else if (e._event === "position" && positionOn) {
+        } else if (e._event === "position" && positionOn && e.driver === drvNum) {
             posDelta = e.gained;
             deltaTimer.restart();
             if (!popping)
@@ -169,20 +199,23 @@ Activity {
         return v ? String(v) + "s" : "…";
     }
     readonly property string posText: drv && drv.pos ? "P" + drv.pos : "P–"
+    onDrvNumChanged: posDelta = 0
 
     // ---- driver selection -------------------------------------------------------------
-    property bool picking: false
+    // "" not picking, "1" your driver, "2" the second driver
+    property string picking: ""
     function pickDriver(tla) {
-        Config.set(["modules", moduleId, "options", "driver"], tla);
-        picking = false;
+        Config.set(["modules", moduleId, "options", picking === "2" ? "driver2" : "driver"], tla);
+        picking = "";
     }
-    onHidden: picking = false
+    onHidden: picking = ""
 
     // ---- sizes ------------------------------------------------------------------------
     readonly property int ch: Config.cfg.sizes.collapsedHeight
     collapsedSize: popping ? Qt.size(pit !== null || (popup && popup.kind === "penalty") ? 310 : 260, ch + 2) : drv && lapsOn ? Qt.size(statusShown ? 300 : 262, ch + 2) : Qt.size(statusShown ? 170 : 150, ch + 2)
     hoverSize: popping ? Qt.size(360, 62) : drv && lapsOn ? Qt.size(360, 62) : Qt.size(240, 48)
-    expandedSize: picking || !drv ? Qt.size(400, 60 + Math.ceil(Math.max(1, drivers.length) / 6) * 30) : Qt.size(400, 196)
+    readonly property bool showPicker: picking !== "" || drv === null
+    expandedSize: showPicker ? Qt.size(420, 64 + Math.ceil(Math.max(1, drivers.length + (picking === "2" ? 1 : 0)) / 6) * 30) : Qt.size(420, drv2 ? 232 : 150)
 
     // ---- small parts --------------------------------------------------------------------
     component Mono: Text {
@@ -487,16 +520,189 @@ Activity {
         }
     }
 
+    // One driver in the expanded island: position, tyre and gap on top, then
+    // minisectors with the sector colour and time, then last and best lap.
+    component DriverBlock: Item {
+        id: blk
+        property var d: null
+        property bool primary: false
+        readonly property real w3: (width - 20) / 3
+        height: 76
+
+        Rectangle {
+            id: bar
+            y: 1
+            width: 4
+            height: 20
+            radius: 2
+            color: blk.d ? blk.d.color : Theme.fgDim
+        }
+        Text {
+            id: posT
+            anchors.left: bar.right
+            anchors.leftMargin: 8
+            anchors.verticalCenter: bar.verticalCenter
+            text: blk.d && blk.d.pos ? "P" + blk.d.pos : "P–"
+            color: Theme.fg
+            font.family: Theme.font
+            font.pixelSize: Theme.fontSize + 4
+            font.weight: Font.Black
+        }
+        Text {
+            id: tlaT
+            anchors.left: posT.right
+            anchors.leftMargin: 8
+            anchors.verticalCenter: bar.verticalCenter
+            text: blk.d ? blk.d.tla : ""
+            color: Theme.fg
+            font.family: Theme.font
+            font.pixelSize: Theme.fontSize
+            font.weight: Font.Bold
+        }
+        Text {
+            anchors.left: tlaT.right
+            anchors.leftMargin: 8
+            anchors.verticalCenter: bar.verticalCenter
+            text: blk.primary && root.posDelta !== 0 ? (root.posDelta > 0 ? "▲" + root.posDelta : "▼" + (-root.posDelta)) : blk.d ? blk.d.team : ""
+            color: blk.primary && root.posDelta > 0 ? root.col.gain : blk.primary && root.posDelta < 0 ? root.col.loss : Theme.fgDim
+            font.family: Theme.font
+            font.pixelSize: Theme.fontSize - 4
+            font.weight: blk.primary && root.posDelta !== 0 ? Font.Bold : Font.Normal
+        }
+        Row {
+            anchors.right: parent.right
+            anchors.verticalCenter: bar.verticalCenter
+            spacing: 6
+            Tyre {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: blk.d !== null && blk.d.tyre !== null
+                compound: blk.d && blk.d.tyre ? blk.d.tyre.c : ""
+            }
+            Mono {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: blk.d !== null && blk.d.tyre !== null
+                text: blk.d && blk.d.tyre ? blk.d.tyre.age + "L" : ""
+                color: Theme.fgDim
+                font.pixelSize: Theme.fontSize - 3
+            }
+            Mono {
+                anchors.verticalCenter: parent.verticalCenter
+                leftPadding: 6
+                text: !blk.d ? "" : blk.d.inPit ? "IN PIT" : blk.d.retired ? "OUT" : (blk.d.pos === 1 ? "LEADER" : (blk.d.interval || blk.d.gap || ""))
+                color: blk.d && blk.d.inPit ? root.col.pit : Theme.fgDim
+                font.pixelSize: Theme.fontSize - 3
+            }
+        }
+
+        Row {
+            y: 30
+            spacing: 10
+            Repeater {
+                model: blk.d ? blk.d.sectors : []
+                delegate: Column {
+                    id: secCol
+                    required property var modelData
+                    required property int index
+                    readonly property int n: Math.max(1, modelData.seg.length)
+                    spacing: 3
+                    Row {
+                        spacing: 2
+                        Repeater {
+                            model: secCol.modelData.seg.length > 0 ? secCol.modelData.seg : [""]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: (blk.w3 - 2 * (secCol.n - 1)) / secCol.n
+                                height: 5
+                                radius: 2
+                                color: root.timingColor(modelData)
+                            }
+                        }
+                    }
+                    Rectangle {
+                        width: blk.w3
+                        height: 3
+                        radius: 1.5
+                        color: root.timingColor(secCol.modelData.c)
+                    }
+                    Mono {
+                        topPadding: 1
+                        text: "S" + (secCol.index + 1) + "  " + (secCol.modelData.v || "––.–––")
+                        color: root.textColor(secCol.modelData.c)
+                        font.pixelSize: Theme.fontSize - 2
+                    }
+                }
+            }
+        }
+
+        Row {
+            y: 60
+            spacing: 8
+            Text {
+                anchors.baseline: lastT.baseline
+                text: "LAST"
+                color: Theme.fgDim
+                font.family: Theme.font
+                font.pixelSize: 9
+                font.weight: Font.Bold
+            }
+            Mono {
+                id: lastT
+                text: blk.d && blk.d.last.v ? blk.d.last.v : "–:––.–––"
+                color: root.textColor(blk.d ? blk.d.last.c : "")
+                font.weight: Font.Bold
+            }
+            Item {
+                width: 8
+                height: 1
+            }
+            Text {
+                anchors.baseline: lastT.baseline
+                text: "BEST"
+                color: Theme.fgDim
+                font.family: Theme.font
+                font.pixelSize: 9
+                font.weight: Font.Bold
+            }
+            Mono {
+                text: blk.d && blk.d.best ? blk.d.best : "–:––.–––"
+            }
+        }
+        Mono {
+            anchors.right: parent.right
+            y: 60
+            text: blk.d ? blk.d.stops + (blk.d.stops === 1 ? " stop" : " stops") : ""
+            color: Theme.fgDim
+            font.pixelSize: Theme.fontSize - 3
+        }
+    }
+
+    component Link: Text {
+        signal activated
+        color: linkHover.hovered ? Theme.fg : Theme.fgDim
+        font.family: Theme.font
+        font.pixelSize: Theme.fontSize - 3
+        font.underline: linkHover.hovered
+        HoverHandler {
+            id: linkHover
+            cursorShape: Qt.PointingHandCursor
+        }
+        TapHandler {
+            // exclusive: the click must not also collapse the island
+            gesturePolicy: TapHandler.WithinBounds
+            onTapped: parent.activated()
+        }
+    }
+
     expandedView: Component {
         Item {
-            // header: meeting, lap, status
+            // header: meeting (or what is being picked), lap, track status
             Text {
                 x: 18
                 y: 12
-                width: parent.width - 150
-                text: root.st ? (root.st.session.meeting || "F1") + (root.st.session.type !== "Race" ? " · " + root.st.session.name : "") : "F1"
+                width: parent.width - 170
+                text: root.picking === "2" ? "Pick a second driver" : root.showPicker ? "Pick your driver" : root.st ? (root.st.session.meeting || "F1") + (root.st.session.type !== "Race" ? " · " + root.st.session.name : "") : "F1"
                 elide: Text.ElideRight
-                color: Theme.fgDim
+                color: root.showPicker ? Theme.fg : Theme.fgDim
                 font.family: Theme.font
                 font.pixelSize: Theme.fontSize - 3
                 font.weight: Font.DemiBold
@@ -506,15 +712,22 @@ Activity {
                 anchors.rightMargin: 18
                 y: 10
                 spacing: 8
+                Link {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: root.picking !== "" && root.drv !== null
+                    text: "Cancel"
+                    onActivated: root.picking = ""
+                }
                 Mono {
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: root.st && root.st.lap[1] > 0
+                    visible: !root.showPicker && root.st !== null && root.st.lap[1] > 0
                     text: root.st ? "LAP " + root.st.lap[0] + "/" + root.st.lap[1] : ""
                     color: Theme.fgDim
                     font.pixelSize: Theme.fontSize - 3
                 }
                 Chip {
                     anchors.verticalCenter: parent.verticalCenter
+                    visible: !root.showPicker
                     tone: root.statusColor(root.trackCode)
                     filled: root.trackCode !== "green"
                     text: root.trackCode === "green" ? "GREEN" : root.statusChip(root.trackCode)
@@ -525,7 +738,7 @@ Activity {
             Item {
                 anchors.fill: parent
                 anchors.topMargin: 36
-                visible: root.picking || root.drv === null
+                visible: root.showPicker
                 Text {
                     visible: root.drivers.length === 0
                     anchors.centerIn: parent
@@ -540,17 +753,17 @@ Activity {
                     columnSpacing: 6
                     rowSpacing: 6
                     Repeater {
-                        model: root.drivers
+                        model: root.picking === "2" ? [{ n: "", tla: "NONE", color: "transparent" }].concat(root.drivers) : root.drivers
                         delegate: Rectangle {
                             id: cell
                             required property var modelData
-                            readonly property bool mine: root.drv && root.drv.n === modelData.n
-                            width: 54
+                            readonly property bool chosen: modelData.n === (root.picking === "2" ? root.drv2Num : root.drvNum)
+                            width: 58
                             height: 24
                             radius: 6
-                            color: cellHover.hovered ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, mine ? 0.12 : 0.05)
-                            border.width: mine ? 1.5 : 0
-                            border.color: modelData.color
+                            color: cellHover.hovered ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, chosen ? 0.12 : 0.05)
+                            border.width: chosen ? 1.5 : 0
+                            border.color: modelData.n ? modelData.color : Theme.fgDim
                             Rectangle {
                                 x: 6
                                 anchors.verticalCenter: parent.verticalCenter
@@ -563,7 +776,7 @@ Activity {
                                 x: 14
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: cell.modelData.tla
-                                color: Theme.fg
+                                color: cell.modelData.n ? Theme.fg : Theme.fgDim
                                 font.family: Theme.font
                                 font.pixelSize: Theme.fontSize - 2
                                 font.weight: Font.DemiBold
@@ -575,201 +788,52 @@ Activity {
                             TapHandler {
                                 // exclusive: the click must not also collapse the island
                                 gesturePolicy: TapHandler.WithinBounds
-                                onTapped: root.pickDriver(cell.modelData.tla)
+                                onTapped: root.pickDriver(cell.modelData.n ? cell.modelData.tla : "")
                             }
                         }
                     }
                 }
             }
 
-            // dashboard
-            Item {
-                anchors.fill: parent
-                visible: !root.picking && root.drv !== null
-                Row {
-                    x: 18
-                    y: 34
-                    spacing: 10
-                    Rectangle {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 4
-                        height: 26
-                        radius: 2
-                        color: root.drv ? root.drv.color : Theme.fgDim
-                    }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.posText
-                        color: Theme.fg
-                        font.family: Theme.font
-                        font.pixelSize: Theme.fontSize + 9
-                        font.weight: Font.Black
-                    }
-                    Column {
-                        anchors.verticalCenter: parent.verticalCenter
-                        Text {
-                            text: root.drv ? root.drv.tla + (root.posDelta !== 0 ? (root.posDelta > 0 ? "  ▲" + root.posDelta : "  ▼" + (-root.posDelta)) : "") : ""
-                            color: root.posDelta > 0 ? root.col.gain : root.posDelta < 0 ? root.col.loss : Theme.fg
-                            font.family: Theme.font
-                            font.pixelSize: Theme.fontSize
-                            font.weight: Font.Bold
-                        }
-                        Text {
-                            text: root.drv ? root.drv.team : ""
-                            color: Theme.fgDim
-                            font.family: Theme.font
-                            font.pixelSize: Theme.fontSize - 4
-                        }
-                    }
-                }
-                Column {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 18
-                    y: 34
-                    spacing: 2
-                    Mono {
-                        anchors.right: parent.right
-                        text: "INT " + (root.drv && root.drv.interval ? root.drv.interval : "–")
-                        color: Theme.fgDim
-                        font.pixelSize: Theme.fontSize - 3
-                    }
-                    Mono {
-                        anchors.right: parent.right
-                        text: "LDR " + (root.drv && root.drv.gap ? root.drv.gap : "–")
-                        color: Theme.fgDim
-                        font.pixelSize: Theme.fontSize - 3
-                    }
-                }
+            // your driver, then the second one
+            DriverBlock {
+                x: 18
+                y: 36
+                width: parent.width - 36
+                visible: !root.showPicker
+                d: root.drv
+                primary: true
+            }
+            Rectangle {
+                x: 18
+                y: 118
+                width: parent.width - 36
+                height: 1
+                visible: !root.showPicker && root.drv2 !== null
+                color: Theme.hairline
+            }
+            DriverBlock {
+                x: 18
+                y: 126
+                width: parent.width - 36
+                visible: !root.showPicker && root.drv2 !== null
+                d: root.drv2
+            }
 
-                // minisectors, one block per sector, with the sector time under it
-                Row {
-                    x: 18
-                    y: 80
-                    spacing: 10
-                    Repeater {
-                        model: root.drv ? root.drv.sectors : []
-                        delegate: Column {
-                            id: secCol
-                            required property var modelData
-                            required property int index
-                            readonly property real w: (400 - 36 - 20) / 3
-                            spacing: 5
-                            Row {
-                                spacing: 2
-                                Repeater {
-                                    model: secCol.modelData.seg.length > 0 ? secCol.modelData.seg : [""]
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        width: (secCol.w - 2 * (Math.max(1, secCol.modelData.seg.length) - 1)) / Math.max(1, secCol.modelData.seg.length)
-                                        height: 5
-                                        radius: 2
-                                        color: root.timingColor(modelData)
-                                    }
-                                }
-                            }
-                            Rectangle {
-                                width: secCol.w
-                                height: 3
-                                radius: 1.5
-                                color: root.timingColor(secCol.modelData.c)
-                            }
-                            Mono {
-                                text: "S" + (secCol.index + 1) + "  " + (secCol.modelData.v || "––.–––")
-                                color: root.textColor(secCol.modelData.c)
-                                font.pixelSize: Theme.fontSize - 2
-                            }
-                        }
-                    }
-                }
-
-                // last / best / tyre / stops
-                Row {
-                    x: 18
-                    y: 140
-                    spacing: 18
-                    Column {
-                        Text {
-                            text: "LAST"
-                            color: Theme.fgDim
-                            font.family: Theme.font
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
-                        }
-                        Mono {
-                            text: root.drv && root.drv.last.v ? root.drv.last.v : "–:––.–––"
-                            color: root.textColor(root.drv ? root.drv.last.c : "")
-                            font.pixelSize: Theme.fontSize + 1
-                            font.weight: Font.Bold
-                        }
-                    }
-                    Column {
-                        Text {
-                            text: "BEST"
-                            color: Theme.fgDim
-                            font.family: Theme.font
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
-                        }
-                        Mono {
-                            text: root.drv && root.drv.best ? root.drv.best : "–:––.–––"
-                            font.pixelSize: Theme.fontSize + 1
-                        }
-                    }
-                    Column {
-                        Text {
-                            text: "TYRE"
-                            color: Theme.fgDim
-                            font.family: Theme.font
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
-                        }
-                        Row {
-                            spacing: 6
-                            height: 20
-                            Tyre {
-                                anchors.verticalCenter: parent.verticalCenter
-                                compound: root.drv && root.drv.tyre ? root.drv.tyre.c : ""
-                            }
-                            Mono {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: root.drv && root.drv.tyre ? root.drv.tyre.age + " laps" + (root.drv.tyre.new ? "" : " (used)") : "–"
-                                font.pixelSize: Theme.fontSize - 2
-                            }
-                        }
-                    }
-                    Column {
-                        Text {
-                            text: "STOPS"
-                            color: Theme.fgDim
-                            font.family: Theme.font
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
-                        }
-                        Mono {
-                            text: root.drv ? (root.drv.inPit ? "IN PIT" : String(root.drv.stops)) : "–"
-                            color: root.drv && root.drv.inPit ? root.col.pit : Theme.fg
-                            font.pixelSize: Theme.fontSize + 1
-                        }
-                    }
-                }
-                Text {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 18
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 12
+            Row {
+                anchors.right: parent.right
+                anchors.rightMargin: 18
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 10
+                spacing: 14
+                visible: !root.showPicker
+                Link {
                     text: "Change driver"
-                    color: changeHover.hovered ? Theme.fg : Theme.fgDim
-                    font.family: Theme.font
-                    font.pixelSize: Theme.fontSize - 3
-                    font.underline: changeHover.hovered
-                    HoverHandler {
-                        id: changeHover
-                        cursorShape: Qt.PointingHandCursor
-                    }
-                    TapHandler {
-                        gesturePolicy: TapHandler.WithinBounds
-                        onTapped: root.picking = true
-                    }
+                    onActivated: root.picking = "1"
+                }
+                Link {
+                    text: root.drv2 ? "Change 2nd" : "Add 2nd driver"
+                    onActivated: root.picking = "2"
                 }
             }
         }

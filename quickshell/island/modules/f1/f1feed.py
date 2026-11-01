@@ -6,13 +6,15 @@ FastF1 are built on), which needs no account. SignalR Core over Server-Sent
 Events, so nothing beyond the standard library is needed. Every line printed is
 one JSON object for the module:
 
-  {"t":"state", ...}     the whole picture for the selected driver, throttled
+  {"t":"state", ...}     session, track status and every car's timing, throttled
   {"t":"drivers", ...}   the entry list, when it changes
-  {"_event":"pit"|"penalty"|"position"|"status", ...}   things that just happened
-                         (the island also emits these as f1.<name> on its bus)
+  {"_event":"pit"|"penalty"|"position"|"status", ...}   things that just happened,
+                         for every driver (the module picks yours; the island also
+                         emits these as f1.<name> on its bus)
 
-Options arrive as ISLAND_OPT_<KEY>: DRIVER (number or TLA), SESSIONS
-("races" or "all"). The script connects only while a session is on or close.
+Every car is sent so that choosing a driver in the island is instant and needs
+no reconnect. Option: ISLAND_OPT_SESSIONS ("races" or "all"). The script
+connects only while a session is on or close.
 """
 import datetime as dt
 import http.cookiejar
@@ -30,7 +32,6 @@ TOPICS = ["Heartbeat", "SessionInfo", "SessionStatus", "TrackStatus", "RaceContr
           "PitStopSeries"]
 RS = "\x1e"
 UA = {"User-Agent": "island-f1/1.0"}
-DRIVER_OPT = os.environ.get("ISLAND_OPT_DRIVER", "").strip().upper()
 ALL_SESSIONS = os.environ.get("ISLAND_OPT_SESSIONS", "races") == "all"
 
 TRACK = {"1": ("green", "Track clear"), "2": ("yellow", "Yellow flag"), "4": ("sc", "Safety car"),
@@ -102,13 +103,12 @@ class Feed:
         self.dirty = False
         self.ready = False
         self.seen_rc = set()
-        self.prev_pos = None
-        self.prev_inpit = None
+        self.prev_pos = {}
+        self.prev_inpit = {}
         self.prev_track = None
-        self.pit = None
+        self.pits = {}
         self.sectors_flag = {}
         self.drivers_sig = ""
-        self.num = None
 
     # ---- ingest ------------------------------------------------------------
     def snapshot(self, res):
@@ -147,16 +147,9 @@ class Feed:
         out_.sort(key=lambda x: x["line"])
         return out_
 
-    def resolve(self):
-        if not DRIVER_OPT:
-            return None
-        for d in self.drivers():
-            if DRIVER_OPT in (d["n"], d["tla"]):
-                return d["n"]
-        return DRIVER_OPT if DRIVER_OPT.isdigit() else None
-
-    def line(self, num):
-        return ((self.s.get("TimingData") or {}).get("Lines") or {}).get(num) or {}
+    def lines(self):
+        ls = (self.s.get("TimingData") or {}).get("Lines") or {}
+        return {k: v for k, v in ls.items() if isinstance(v, dict)}
 
     def stint(self, num):
         app = ((self.s.get("TimingAppData") or {}).get("Lines") or {}).get(num) or {}
@@ -205,7 +198,6 @@ class Feed:
             self.sectors_flag.clear()
 
     def new_rc(self, msgs):
-        num = self.resolve()
         for m in msgs:
             if not isinstance(m, dict):
                 continue
@@ -221,7 +213,7 @@ class Feed:
             if "PENALTY" in up and not re.search(r"SERVED|NO FURTHER|NOTED|UNDER INVESTIGATION|REVOKED|CANCELLED", up):
                 car = m.get("RacingNumber") or (re.search(r"\bCAR (\d+)", up) or [None, None])[1]
                 tla = next((d["tla"] for d in self.drivers() if d["n"] == str(car)), "")
-                out({"_event": "penalty", "driver": str(car or ""), "tla": tla, "mine": bool(num) and str(car) == num,
+                out({"_event": "penalty", "driver": str(car or ""), "tla": tla,
                      "lap": m.get("Lap"), "message": text, "summary": penalty_summary(up)})
 
     # ---- derived events ----------------------------------------------------------
@@ -233,53 +225,50 @@ class Feed:
                 out({"_event": "status", "code": code, "label": label, "sectors": sorted(self.sectors_flag)})
             self.prev_track = ts
 
-        num = self.resolve()
-        if num != self.num:
-            self.num, self.prev_pos, self.prev_inpit, self.pit = num, None, None, None
-        if not num:
-            return
-        ln = self.line(num)
-        pos = to_int(ln.get("Position"))
-        if pos and self.prev_pos and pos != self.prev_pos and not initial and self.race_running() \
-                and self.session_type() == "Race":
-            out({"_event": "position", "driver": num, "from": self.prev_pos, "to": pos,
-                 "gained": self.prev_pos - pos})
-        if pos:
-            self.prev_pos = pos
-
-        inpit = bool(ln.get("InPit"))
-        st, nst = self.stint(num)
+        running = self.race_running()
+        race = self.session_type() == "Race"
         now = time.time()
-        if self.prev_inpit is False and inpit and not initial and self.race_running():
-            self.pit = {"phase": "in", "since": now, "lap": to_int(ln.get("NumberOfLaps")),
-                        "oldCompound": (st or {}).get("Compound", ""), "stints": nst,
-                        "compound": "", "new": None, "stop": "", "lane": ""}
-            out({"_event": "pit", "phase": "in", "driver": num, "lap": self.pit["lap"]})
-        self.prev_inpit = inpit
-        p = self.pit
-        if p:
-            if p["phase"] == "in" and not inpit:
-                p["phase"], p["out"] = "out", now
-            if nst > p["stints"] and st:
-                p["compound"] = st.get("Compound", "")
-                p["new"] = str(st.get("New", "")).lower() == "true"
-            lane = ((self.s.get("PitLaneTimeCollection") or {}).get("PitTimes") or {}).get(num) or {}
-            if lane.get("Duration"):
-                p["lane"] = lane["Duration"]
-            stops = ordered(((self.s.get("PitStopSeries") or {}).get("PitTimes") or {}).get(num))
-            if stops:
-                ps = (stops[-1] or {}).get("PitStop") or {}
-                if to_int(ps.get("Lap")) is None or p["lap"] is None or to_int(ps.get("Lap")) >= p["lap"]:
-                    p["stop"] = ps.get("PitStopTime") or p["stop"]
-                    p["lane"] = p["lane"] or ps.get("PitLaneTime") or ""
-            if p["phase"] == "out" and ((p["lane"] and p["compound"]) or now - p["out"] > 40):
-                p["phase"], p["done"] = "done", now
-                out({"_event": "pit", "phase": "done", "driver": num, "lap": p["lap"],
-                     "compound": p["compound"], "new": p["new"], "stop": p["stop"], "lane": p["lane"]})
-            if p["phase"] == "done" and now - p["done"] > 12:
-                self.pit = None
-            elif now - p["since"] > 150:
-                self.pit = None
+        for num, ln in self.lines().items():
+            pos = to_int(ln.get("Position"))
+            prev = self.prev_pos.get(num)
+            if pos and prev and pos != prev and not initial and running and race:
+                out({"_event": "position", "driver": num, "from": prev, "to": pos, "gained": prev - pos})
+            if pos:
+                self.prev_pos[num] = pos
+
+            inpit = bool(ln.get("InPit"))
+            st, nst = self.stint(num)
+            if self.prev_inpit.get(num) is False and inpit and not initial and running:
+                self.pits[num] = {"phase": "in", "since": now, "lap": to_int(ln.get("NumberOfLaps")),
+                                  "oldCompound": (st or {}).get("Compound", ""), "stints": nst,
+                                  "compound": "", "new": None, "stop": "", "lane": ""}
+                out({"_event": "pit", "phase": "in", "driver": num, "lap": self.pits[num]["lap"]})
+            self.prev_inpit[num] = inpit
+            if num in self.pits:
+                self.track_pit(num, inpit, st, nst, now)
+
+    def track_pit(self, num, inpit, st, nst, now):
+        p = self.pits[num]
+        if p["phase"] == "in" and not inpit:
+            p["phase"], p["out"] = "out", now
+        if nst > p["stints"] and st:
+            p["compound"] = st.get("Compound", "")
+            p["new"] = str(st.get("New", "")).lower() == "true"
+        lane = ((self.s.get("PitLaneTimeCollection") or {}).get("PitTimes") or {}).get(num) or {}
+        if lane.get("Duration"):
+            p["lane"] = lane["Duration"]
+        stops = ordered(((self.s.get("PitStopSeries") or {}).get("PitTimes") or {}).get(num))
+        if stops:
+            ps = (stops[-1] or {}).get("PitStop") or {}
+            if to_int(ps.get("Lap")) is None or p["lap"] is None or to_int(ps.get("Lap")) >= p["lap"]:
+                p["stop"] = ps.get("PitStopTime") or p["stop"]
+                p["lane"] = p["lane"] or ps.get("PitLaneTime") or ""
+        if p["phase"] == "out" and ((p["lane"] and p["compound"]) or now - p["out"] > 40):
+            p["phase"], p["done"] = "done", now
+            out({"_event": "pit", "phase": "done", "driver": num, "lap": p["lap"],
+                 "compound": p["compound"], "new": p["new"], "stop": p["stop"], "lane": p["lane"]})
+        if (p["phase"] == "done" and now - p["done"] > 12) or now - p["since"] > 150:
+            del self.pits[num]
 
     # ---- output ----------------------------------------------------------------
     def state(self):
@@ -293,45 +282,42 @@ class Feed:
                           "status": (self.s.get("SessionStatus") or {}).get("Status", "")},
               "lap": [to_int(lc.get("CurrentLap")) or 0, to_int(lc.get("TotalLaps")) or 0],
               "track": {"code": code, "label": label, "sectors": sorted(self.sectors_flag, key=lambda x: to_int(x) or 0)},
-              "driver": None, "pit": None, "wanted": DRIVER_OPT}
-        num = self.resolve()
-        if num:
-            ln = self.line(num)
-            d = next((x for x in self.drivers() if x["n"] == num), {"n": num, "tla": num, "team": "", "color": "#888888"})
-            secs = []
-            for sec in ordered(ln.get("Sectors"))[:3]:
-                v = sec.get("Value", "") or ""
-                c = "p" if sec.get("OverallFastest") and v else "g" if sec.get("PersonalFastest") and v else "y" if v else ""
-                secs.append({"v": v, "c": c, "seg": [SEG.get(to_int(g.get("Status")) or 0, "")
-                                                        for g in ordered(sec.get("Segments"))]})
-            last = ln.get("LastLapTime") or {}
-            lv = last.get("Value", "") or ""
-            stt, nst = self.stint(num)
-            iv = ln.get("IntervalToPositionAhead")
-            st["driver"] = {
-                "n": num, "tla": d["tla"], "team": d.get("team", ""), "color": d.get("color", "#888888"),
-                "pos": to_int(ln.get("Position")), "laps": to_int(ln.get("NumberOfLaps")),
-                "inPit": bool(ln.get("InPit")), "pitOut": bool(ln.get("PitOut")),
-                "retired": bool(ln.get("Retired")), "stopped": bool(ln.get("Stopped")),
-                "stops": to_int(ln.get("NumberOfPitStops")) or 0,
-                "gap": ln.get("GapToLeader", "") if not isinstance(ln.get("GapToLeader"), dict) else "",
-                "interval": (iv.get("Value", "") if isinstance(iv, dict) else (iv or "")),
-                "sectors": secs,
-                "last": {"v": lv, "c": "p" if last.get("OverallFastest") and lv else "g" if last.get("PersonalFastest") and lv else "y" if lv else ""},
-                "best": ((ln.get("BestLapTime") or {}).get("Value", "")) or "",
-                "tyre": {"c": (stt or {}).get("Compound", ""), "new": str((stt or {}).get("New", "")).lower() == "true",
-                         "age": to_int((stt or {}).get("TotalLaps")) or 0} if stt else None,
-            }
-            if self.pit:
-                st["pit"] = {k: v for k, v in self.pit.items() if k in ("phase", "lap", "oldCompound", "compound", "new", "stop", "lane")}
+              "cars": {num: self.car(num, ln) for num, ln in self.lines().items()},
+              "pits": {num: {k: v for k, v in p.items() if k in ("phase", "lap", "oldCompound", "compound", "new", "stop", "lane")}
+                       for num, p in self.pits.items()}}
         return st
+
+    def car(self, num, ln):
+        secs = []
+        for sec in ordered(ln.get("Sectors"))[:3]:
+            v = sec.get("Value", "") or ""
+            c = "p" if sec.get("OverallFastest") and v else "g" if sec.get("PersonalFastest") and v else "y" if v else ""
+            secs.append({"v": v, "c": c, "seg": [SEG.get(to_int(g.get("Status")) or 0, "")
+                                                    for g in ordered(sec.get("Segments"))]})
+        last = ln.get("LastLapTime") or {}
+        lv = last.get("Value", "") or ""
+        stt, nst = self.stint(num)
+        iv = ln.get("IntervalToPositionAhead")
+        return {
+            "pos": to_int(ln.get("Position")), "laps": to_int(ln.get("NumberOfLaps")),
+            "inPit": bool(ln.get("InPit")), "pitOut": bool(ln.get("PitOut")),
+            "retired": bool(ln.get("Retired")), "stopped": bool(ln.get("Stopped")),
+            "stops": to_int(ln.get("NumberOfPitStops")) or 0,
+            "gap": ln.get("GapToLeader", "") if not isinstance(ln.get("GapToLeader"), dict) else "",
+            "interval": (iv.get("Value", "") if isinstance(iv, dict) else (iv or "")),
+            "sectors": secs,
+            "last": {"v": lv, "c": "p" if last.get("OverallFastest") and lv else "g" if last.get("PersonalFastest") and lv else "y" if lv else ""},
+            "best": ((ln.get("BestLapTime") or {}).get("Value", "")) or "",
+            "tyre": {"c": (stt or {}).get("Compound", ""), "new": str((stt or {}).get("New", "")).lower() == "true",
+                     "age": to_int((stt or {}).get("TotalLaps")) or 0} if stt else None,
+        }
 
     def flush(self, force=False):
         with self.lock:
             if not self.ready or not (self.dirty or force):
                 return
             self.dirty = False
-            if self.pit:
+            if self.pits:
                 self.analyse(initial=False)
             ds = self.drivers()
             sig = json.dumps(ds)

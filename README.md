@@ -177,7 +177,9 @@ The clock is not a module; see [Configuration](#configuration).
 ### F1 live timing
 
 Enable **F1 Live** in Settings > Modules (or `island-ctl module enable f1`), then expand the island during
-a session and pick your driver, or set **My driver** (`44` or `HAM`) in its settings.
+a session and pick your driver, or set **My driver** (`44` or `HAM`) in its settings. **Add 2nd driver**
+in the expanded island (or **Second driver** in Settings) shows a second car below yours, with its
+minisectors, sector times, last and best lap. Switching drivers is instant: the feed carries every car.
 
 Data comes from F1's own live-timing feed (`livetiming.formula1.com`), the source OpenF1 and FastF1 are
 built on. It is free and needs no account; OpenF1's free tier only serves finished sessions. The module's
