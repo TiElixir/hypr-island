@@ -531,6 +531,8 @@ Activity {
                                 cursorShape: Qt.PointingHandCursor
                             }
                             TapHandler {
+                                // exclusive: the click must not also collapse the island
+                                gesturePolicy: TapHandler.WithinBounds
                                 onTapped: root.pickDriver(cell.modelData.tla)
                             }
                         }
@@ -723,6 +725,7 @@ Activity {
                         cursorShape: Qt.PointingHandCursor
                     }
                     TapHandler {
+                        gesturePolicy: TapHandler.WithinBounds
                         onTapped: root.picking = true
                     }
                 }

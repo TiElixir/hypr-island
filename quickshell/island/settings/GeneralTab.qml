@@ -86,7 +86,7 @@ TabPage {
     SettingRow {
         path: ["timings", "collapseOnLeave"]
         title: "Collapse when the pointer leaves"
-        description: "Applies to the expanded view."
+        description: "Applies to the expanded view. Off: it stays open until you click it or press SUPER+ALT+I."
         type: "bool"
     }
     SettingRow {

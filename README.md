@@ -120,7 +120,8 @@ scripts/uninstall.sh --keep-config
 | `SUPER` + `ALT` + `I` | Toggle the island open or closed |
 | `SUPER` + `ALT` + `S` | Open Settings (press again to close) |
 
-Pointer: hover the pill to grow it, click to expand, move away to collapse. Click the side bubble to
+Pointer: hover the pill to grow it, click to expand, move away or click it again (anywhere but a button) to
+collapse. Click the side bubble to
 bring the runner-up module to the front. Right-click the clock to open Settings.
 
 ### Settings

@@ -253,8 +253,14 @@ PanelWindow {
         act: win.current
         mode: win.mode
         onClicked: {
-            if (win.mode === "expanded" || !win.current)
+            if (!win.current)
                 return;
+            // A click on the expanded island (not on one of its buttons, which
+            // take the click themselves) collapses it.
+            if (win.mode === "expanded") {
+                win.mode = "collapsed";
+                return;
+            }
             const expand = win.current.onActivated(win.mode);
             if (expand !== false)
                 win.mode = "expanded";
