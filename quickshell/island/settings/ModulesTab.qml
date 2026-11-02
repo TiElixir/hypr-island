@@ -10,6 +10,8 @@ TabPage {
     // or the set of modules actually changes, and remember which cards are open.
     property var orderIds: []
     property var openIds: ({})
+    // Built-in modules the installer left out.
+    readonly property var notInstalled: manager ? manager.skipped.map(s => s.name) : []
 
     function refresh() {
         const ids = manager.ordered.map(m => m.id);
@@ -73,5 +75,16 @@ TabPage {
             manager: tab.manager
             rec: modelData
         }
+    }
+
+    Text {
+        visible: tab.notInstalled.length > 0
+        width: tab.width - 22
+        topPadding: 10
+        wrapMode: Text.Wrap
+        text: "Not installed: " + tab.notInstalled.join(", ") + ". Add them with scripts/install.sh modules."
+        color: Theme.fgDim
+        font.family: Theme.font
+        font.pixelSize: Theme.fontSize - 3
     }
 }

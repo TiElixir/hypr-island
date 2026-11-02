@@ -35,6 +35,19 @@ Scope {
     property var sources: ({})
     property var errors: ({})
 
+    // Built-in modules left out by the installer (config "skipModules"): never
+    // loaded and not listed in Settings. { id, name } of each one found.
+    property var skipped: []
+    property string skipKey: "[]"
+    property string lastScan: ""
+    function skipList() {
+        const s = Config.cfg.skipModules;
+        return Array.isArray(s) ? s : [];
+    }
+    function missing(id) {
+        return skipped.some(s => s.id === id) ? "not installed (add it with scripts/install.sh modules)" : "unknown module";
+    }
+
     // ---- discovery ------------------------------------------------------------
     function rescan() {
         if (!lister.running)
@@ -51,6 +64,10 @@ Scope {
     }
 
     function ingest(text) {
+        lastScan = text;
+        const skip = skipList();
+        skipKey = JSON.stringify(skip);
+        const left = [];
         const out = [];
         const seen = {};
         for (const line of text.split("\n")) {
@@ -69,6 +86,10 @@ Scope {
                     throw new Error("manifest needs an \"id\" of lowercase letters, digits, - or _");
                 rec.id = m.id;
                 rec.name = m.name || m.id;
+                if (builtin && skip.indexOf(m.id) >= 0) {
+                    left.push({ id: m.id, name: rec.name });
+                    continue;
+                }
                 rec.description = m.description || "";
                 const entry = m.entry || "module.qml";
                 if (typeof entry !== "string" || entry.indexOf("..") >= 0 || entry.charAt(0) === "/" || !/\.qml$/.test(entry))
@@ -84,6 +105,7 @@ Scope {
             }
             out.push(rec);
         }
+        skipped = left;
         modules = out;
         sync();
     }
@@ -107,7 +129,10 @@ Scope {
     Connections {
         target: Config
         function onCfgChanged() {
-            mgr.sync();
+            if (JSON.stringify(mgr.skipList()) !== mgr.skipKey)
+                mgr.ingest(mgr.lastScan);
+            else
+                mgr.sync();
         }
     }
 
@@ -316,6 +341,14 @@ Scope {
                     priority: m.error ? null : priorityOf(m.id),
                     status: m.error ? "error: " + m.error : statusOf(m.id),
                     source: sourceStatusOf(m.id)
-                }));
+                })).concat(skipped.map(s => ({
+                        id: s.id,
+                        name: s.name,
+                        builtin: true,
+                        enabled: false,
+                        priority: null,
+                        status: "not installed",
+                        source: ""
+                    })));
     }
 }

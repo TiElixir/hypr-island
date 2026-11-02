@@ -79,6 +79,9 @@ Singleton {
             // "<event>/<script name>" entries switched off in Settings.
             disabled: []
         },
+        // Built-in module ids left out by scripts/install.sh: not loaded, not
+        // shown in Settings.
+        skipModules: [],
         modules: {}
     })
 
@@ -257,8 +260,13 @@ Singleton {
                 const parsed = JSON.parse(text());
                 root.user = root.isObj(parsed) ? root.normalize(parsed) : {};
             } catch (e) {
-                console.warn("island: ignoring invalid config.json:", e);
-                root.user = {};
+                // Also seen mid-write (an editor or scripts/install.sh saving
+                // in place, the file is empty for a moment): keep the last
+                // good config, the next change reloads the finished file.
+                if (text().trim() !== "")
+                    console.warn("island: ignoring invalid config.json:", e);
+                if (!root.loaded)
+                    root.user = {};
             }
             root.loaded = true;
         }

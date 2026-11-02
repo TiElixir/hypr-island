@@ -3,17 +3,23 @@
 # is wrapped in "# >>> island >>>" / "# <<< island <<<" markers (or backed up),
 # so scripts/uninstall.sh can remove it exactly.
 #
-#   scripts/install.sh [--dry-run] [step...]
-#   steps: links config hypr waybar claude   (default: links config hypr waybar)
+#   scripts/install.sh [--dry-run] [--modules LIST] [step...]
+#   steps: links config modules hypr waybar claude
+#          (default: links config modules hypr waybar)
+#
+# The modules step asks which built-in modules to install. --modules answers
+# for it: comma-separated ids (spotify,claude,external,windowfocus,f1), all or none.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HYPR="$HOME/.config/hypr"
 USERCFG="$HYPR/UserConfigs"
 WAYBAR_CFG="$(readlink -f "$HOME/.config/waybar/config")"
+CONFIG="$HOME/.config/island/config.json"
 BEGIN="# >>> island >>>"
 END="# <<< island <<<"
 DRY=0
+PICK=""
 
 say() { printf '  %s\n' "$*"; }
 run() { if [ "$DRY" = 1 ]; then say "[dry-run] $*"; else "$@"; fi; }
@@ -51,9 +57,117 @@ step_links() {
 
 step_config() {
   echo "config"
-  if [ -f "$HOME/.config/island/config.json" ]; then say "keeping existing config.json"; return; fi
+  if [ -f "$CONFIG" ]; then say "keeping existing config.json"; return; fi
   run mkdir -p "$HOME/.config/island"
-  run cp "$REPO/config/config.example.json" "$HOME/.config/island/config.json"
+  run cp "$REPO/config/config.example.json" "$CONFIG"
+}
+
+# ---- modules: which built-in modules are installed ----------------------------
+# A module left out goes into config.json's "skipModules": the island never
+# loads it and Settings doesn't list it. A module put back is switched on.
+ids=() names=() defs=() descs=() state=() on=()
+
+read_modules() {
+  local m id name def desc
+  for m in "$REPO"/quickshell/island/modules/*/manifest.json; do
+    IFS=$'\t' read -r id name def desc < <(jq -r '[.id, .name, (.defaultEnabled != false | tostring),
+      (.description // "" | split(": ")[0] | split(". ")[0] | rtrimstr("."))] | @tsv' "$m")
+    ids+=("$id"); names+=("$name"); defs+=("$def"); descs+=("$desc")
+  done
+}
+
+show_modules() {
+  local i d mark w
+  w=$(( $(tput cols 2>/dev/null || echo 100) - 38 ))
+  [ "$w" -ge 20 ] || w=20
+  for i in "${!ids[@]}"; do
+    d="${descs[i]}"
+    if [ "${#d}" -gt "$w" ]; then d="${d:0:w-1}…"; fi
+    if [ "${on[i]}" = 1 ]; then mark=x; else mark=" "; fi
+    printf '    %d [%s] %-24s %s\n' "$((i + 1))" "$mark" "${names[i]}" "$d"
+  done
+}
+
+join_names() { local out="" x; for x in "$@"; do out="${out:+$out, }$x"; done; printf '%s' "${out:-none}"; }
+json_list() { jq -cn '$ARGS.positional' --args "$@"; }
+
+step_modules() {
+  echo "modules"
+  command -v jq >/dev/null || { say "skip: jq is required"; return; }
+  [ -f "$CONFIG" ] || step_config
+  local src="$CONFIG" i n picks=()
+  [ -f "$src" ] || src="$REPO/config/config.example.json"
+  read_modules
+
+  # state: "skip" or "keep", then "on" or "off" (its switch in Settings).
+  # Installed now means kept and switched on.
+  for i in "${!ids[@]}"; do
+    state[i]=$(jq -r --arg id "${ids[i]}" --argjson def "${defs[i]}" '
+      (if ((.skipModules // []) | any(.[]?; . == $id)) then "skip" else "keep" end) + " " +
+      (if (.modules[$id].enabled | if . == null then $def else . end) == true then "on" else "off" end)' "$src")
+    if [ "${state[i]}" = "keep on" ]; then on[i]=1; else on[i]=0; fi
+  done
+
+  if [ -n "$PICK" ]; then
+    case "$PICK" in
+      all) picks=("${ids[@]}") ;;
+      none) picks=() ;;
+      *) IFS=', ' read -r -a picks <<<"$PICK" ;;
+    esac
+    for n in "${picks[@]}"; do
+      [ -n "$n" ] || continue
+      [[ " ${ids[*]} " == *" $n "* ]] || { echo "unknown module: $n (have: ${ids[*]})" >&2; exit 2; }
+    done
+    for i in "${!ids[@]}"; do
+      if [[ " ${picks[*]} " == *" ${ids[i]} "* ]]; then on[i]=1; else on[i]=0; fi
+    done
+  elif [ "$DRY" = 1 ] || [ ! -t 0 ]; then
+    show_modules
+    if [ "$DRY" = 1 ]; then say "[dry-run] would ask which ones to install (or pass --modules)"
+    else say "no terminal to ask, left as they are (pass --modules to choose)"; fi
+    return
+  else
+    say "Pick the modules to install. Unticked ones are not loaded and don't show up"
+    say "in Settings; run scripts/install.sh modules again to change your mind."
+    while :; do
+      show_modules
+      IFS=', ' read -r -a picks -p "  numbers to tick or untick, Enter when done: " || picks=()
+      [ ${#picks[@]} -gt 0 ] || break
+      for n in "${picks[@]}"; do
+        [ -n "$n" ] || continue
+        if [[ "$n" =~ ^[0-9]{1,3}$ ]] && [ $((10#$n)) -ge 1 ] && [ $((10#$n)) -le "${#ids[@]}" ]; then
+          n=$((10#$n))
+          on[n-1]=$((1 - on[n-1]))
+        else
+          say "no module $n"
+        fi
+      done
+    done
+  fi
+
+  local skip=() enable=() kept=() left=() turned=() new
+  for i in "${!ids[@]}"; do
+    if [ "${on[i]}" = 1 ]; then
+      kept+=("${names[i]}")
+      if [ "${state[i]#* }" = off ]; then enable+=("${ids[i]}"); turned+=("${names[i]}"); fi
+    else
+      skip+=("${ids[i]}"); left+=("${names[i]}")
+    fi
+  done
+  new=$(jq --argjson skip "$(json_list "${skip[@]}")" --argjson enable "$(json_list "${enable[@]}")" '
+    (if ($skip | length) > 0 then .skipModules = $skip else del(.skipModules) end)
+    | reduce $enable[] as $id (.; .modules[$id].enabled = true)' "$src")
+  say "installed: $(join_names "${kept[@]}")"
+  say "left out:  $(join_names "${left[@]}")"
+  if [ "$(jq -cS . "$src")" = "$(jq -cS . <<<"$new")" ]; then
+    say "up to date: $CONFIG"
+  elif [ "$DRY" = 1 ]; then
+    say "[dry-run] would update $CONFIG (switching on: $(join_names "${turned[@]}"))"
+  else
+    # In place, like the island's own saves, so its file watch picks it up.
+    printf '%s\n' "$new" >"$CONFIG"
+    say "updated: $CONFIG (a running island applies it at once)"
+  fi
 }
 
 step_hypr() {
@@ -101,17 +215,23 @@ PY
 step_claude() {
   echo "claude hooks"
   if [ ! -x "$REPO/scripts/claude-hooks.py" ]; then say "not built yet (phase 2)"; return; fi
+  if [ -f "$CONFIG" ] && jq -e '(.skipModules // []) | any(.[]?; . == "claude")' "$CONFIG" >/dev/null 2>&1; then
+    say "note: the Claude Code module is not installed; add it with scripts/install.sh modules"
+  fi
   if [ "$DRY" = 1 ]; then python3 -I "$REPO/scripts/claude-hooks.py" install --dry-run; else python3 -I "$REPO/scripts/claude-hooks.py" install; fi
 }
 
 steps=()
-for a in "$@"; do
-  case "$a" in
+while [ $# -gt 0 ]; do
+  case "$1" in
     --dry-run) DRY=1 ;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
-    *) steps+=("$a") ;;
+    --modules=*) PICK="${1#--modules=}" ;;
+    --modules) [ $# -ge 2 ] || { echo "--modules needs a list" >&2; exit 2; }; shift; PICK="$1" ;;
+    -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
+    *) declare -F "step_$1" >/dev/null || { echo "unknown step: $1 (see --help)" >&2; exit 2; }; steps+=("$1") ;;
   esac
+  shift
 done
-[ ${#steps[@]} -eq 0 ] && steps=(links config hypr waybar)
+[ ${#steps[@]} -eq 0 ] && steps=(links config modules hypr waybar)
 for s in "${steps[@]}"; do "step_$s"; done
 echo "done."

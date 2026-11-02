@@ -16,6 +16,7 @@ Tested on Arch Linux with Hyprland 0.56.2, Quickshell 0.3.1 and Qt 6.11.
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
+  - [Choosing modules](#choosing-modules)
 - [Usage](#usage)
 - [Built-in modules](#built-in-modules)
   - [F1 live timing](#f1-live-timing)
@@ -73,7 +74,7 @@ files and `island-ctl focus` is untested there.
 git clone https://github.com/TiElixir/hypr-island.git && cd hypr-island
 
 scripts/install.sh --dry-run     # show exactly what would change
-scripts/install.sh               # links, config, Hyprland rules, Waybar
+scripts/install.sh               # links, config, module choice, Hyprland rules, Waybar
 scripts/install.sh claude        # optional: Claude Code hooks (new sessions only)
 
 hyprctl reload && killall -SIGUSR2 waybar
@@ -81,6 +82,34 @@ qs -c island                     # or log out and in; it autostarts afterwards
 ```
 
 Run from the repository during development instead with `qs -p quickshell/island`.
+
+### Choosing modules
+
+The installer asks which [built-in modules](#built-in-modules) you want. Type the numbers to tick or untick,
+and press Enter to keep the list:
+
+```
+modules
+    1 [x] Claude Code              Status of your Claude Code sessions
+    2 [x] Cards (island-ctl push)  Temporary cards pushed by any script with island-ctl push
+    3 [ ] F1 Live                  Live race timing for your driver from F1's free live-timing feed
+    4 [x] Music (MPRIS)            Now playing from Spotify or any MPRIS player
+    5 [ ] Active window            Flashes the focused window's app and title when focus changes
+  numbers to tick or untick, Enter when done: 3
+```
+
+A module you leave out is never loaded and does not show up in Settings. Its settings are kept, so it comes
+back as it was. A module you tick is switched on. To change the choice later, with the island running or not:
+
+```sh
+scripts/install.sh modules                           # ask again
+scripts/install.sh --modules spotify,claude modules  # no questions: exactly these ids
+scripts/install.sh --modules all modules             # or: none
+```
+
+`--modules` also works for a whole unattended install (`scripts/install.sh --modules spotify,f1`). Without a
+terminal to ask and without `--modules`, the step leaves the choice as it is. The choice is stored as
+`skipModules` in `~/.config/island/config.json`.
 
 ### What the installer changes
 
@@ -90,7 +119,7 @@ Everything outside this repository that it touches, and how to undo it:
 |---|---|---|
 | `~/.config/quickshell/island` | symlink to `quickshell/island` | removed |
 | `~/.local/bin/island-ctl` | symlink to `bin/island-ctl` | removed |
-| `~/.config/island/config.json` | your settings (created once, never overwritten) | removed |
+| `~/.config/island/config.json` | your settings (created once, never overwritten; the modules step only changes `skipModules` and switches ticked modules on) | removed |
 | `~/.config/hypr/UserConfigs/Startup_Apps.conf` | `exec-once = qs -c island` | marker block removed |
 | `~/.config/hypr/UserConfigs/WindowRules.conf` | blur rules for the `island` and `island-settings` layers | marker block removed |
 | `~/.config/hypr/UserConfigs/UserKeybinds.conf` | `SUPER+ALT+I` toggles the island, `SUPER+ALT+S` opens Settings | marker block removed |
@@ -148,7 +177,7 @@ island-ctl clear --id build            # or --all
 island-ctl list                        # active cards and Claude sessions
 island-ctl toggle | expand | collapse | swap
 island-ctl settings [tab]
-island-ctl modules                     # enabled, priority and status per module
+island-ctl modules                     # enabled, priority and status per module (or "not installed")
 island-ctl module enable|disable|up|down <id>
 island-ctl module priority <id> <n>
 island-ctl reload                      # rescan modules and hook scripts
@@ -172,11 +201,13 @@ is cleared or dismissed. Cards are files, so pushing works while the island is s
 | **Active window** (`windowfocus`) | 62 | Flashes the focused window's app and title when focus changes; lists every open window when expanded. Off by default |
 | **F1 Live** (`f1`) | 66 | Live race timing for your driver: sector colours, race status, pit stops, penalties, position changes. Off by default. See [F1 live timing](#f1-live-timing) |
 
-The clock is not a module; see [Configuration](#configuration).
+The clock is not a module; see [Configuration](#configuration). The installer lets you leave out any of
+these; see [Choosing modules](#choosing-modules).
 
 ### F1 live timing
 
-Enable **F1 Live** in Settings > Modules (or `island-ctl module enable f1`), then expand the island during
+Tick **F1 Live** when the installer asks (or later: `scripts/install.sh modules`). If it was installed
+but switched off, enable it in Settings > Modules (or `island-ctl module enable f1`). Then expand the island during
 a session and pick your driver, or set **My driver** (`44` or `HAM`) in its settings. **Add 2nd driver**
 in the expanded island (or **Second driver** in Settings) shows a second car below yours, with its
 minisectors, sector times, last and best lap. Switching drivers is instant: the feed carries every car.
@@ -208,8 +239,8 @@ lane time only.
 ## Configuration
 
 `~/.config/island/config.json` is deep-merged over the defaults in
-`quickshell/island/core/Config.qml`. Edit it by hand (it is hot-reloaded) or through Settings, and put
-only what you want to change in it. Per-module settings live under `modules.<id>`:
+`quickshell/island/core/Config.qml`. Edit it by hand (it is hot-reloaded; while it doesn't parse, the
+island keeps the last good settings) or through Settings, and put only what you want to change in it. Per-module settings live under `modules.<id>`:
 
 ```json
 {
@@ -241,6 +272,7 @@ only what you want to change in it. Per-module settings live under `modules.<id>
 | `font.family`, `font.size` | JetBrainsMono Nerd Font, 13 | |
 | `hooks.enabled`, `timeoutSec`, `minIntervalMs`, `disabled` | on, 10, 250, `[]` | The event hook runner |
 | `modules.<id>.enabled`, `priority`, `options` | from the manifest | Per-module settings |
+| `skipModules` | `[]` | Built-in module ids left out by the installer: not loaded, not in Settings. Set by `scripts/install.sh modules` |
 
 Older configs with flat `spotify`, `claude`, `external`, `enabled` and `priorities` keys are migrated
 automatically and rewritten in the `modules` layout the first time Settings saves.
@@ -504,6 +536,8 @@ or run `island-ctl restart`); and `scripts/build-shaders.sh` must be re-run afte
 - **Nothing shows.** Check `qs log -c island` and `hyprctl layers | grep island`.
 - **Two clocks.** Waybar's top bar still has `clock` in `modules-center`; run `scripts/install.sh waybar`.
 - **No blur.** Run `hyprctl reload`, then `island-ctl restart` so the layer rules apply to a fresh surface.
+- **A built-in module is missing from Settings.** It was left out at install; the bottom of Settings >
+  Modules names it. Add it with `scripts/install.sh modules`.
 - **My module is not listed.** Run `island-ctl reload`, then look for an error card in Settings > Modules
   (invalid manifest, duplicate id, QML error). `tests/manifest-test.sh <dir>` explains manifest problems.
 - **A hook never runs.** It must be executable, in a folder named exactly like the event, and not switched

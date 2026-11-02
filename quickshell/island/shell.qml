@@ -105,20 +105,20 @@ ShellRoot {
         }
         function enable(id: string, on: bool): string {
             if (mods.recordOf(id) === null)
-                return "unknown module";
+                return mods.missing(id);
             mods.setEnabled(id, on);
             return on ? "enabled" : "disabled";
         }
         // Move a module up (dir -1) or down (+1) in the priority order.
         function moveModule(id: string, dir: int): string {
             if (mods.recordOf(id) === null)
-                return "unknown module";
+                return mods.missing(id);
             mods.move(id, dir);
             return JSON.stringify(mods.ordered.map(m => m.id + ":" + mods.priorityOf(m.id)));
         }
         function setPriority(id: string, value: int): string {
             if (mods.recordOf(id) === null)
-                return "unknown module";
+                return mods.missing(id);
             mods.setPriority(id, value);
             return "ok";
         }
