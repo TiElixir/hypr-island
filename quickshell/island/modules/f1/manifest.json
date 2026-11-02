@@ -7,7 +7,8 @@
   "priority": 66,
   "defaultEnabled": false,
   "emits": {
-    "f1.status": "Track status changed (code: green, yellow, sc, vsc, vscending, red, chequered; label)",
+    "f1.status": "Race status changed (code: green, yellow, sc, vsc, vscending, red, chequered, formation; label)",
+    "f1.start": "Lights out: a race started (restart: true when it resumes after a red flag; lap)",
     "f1.pit": "Your driver pitted (phase in, then done with compound, new, stop, lane)",
     "f1.penalty": "A penalty was given (driver, tla, mine, summary, message)",
     "f1.position": "Your driver's position changed (from, to, gained)"
@@ -31,6 +32,10 @@
       "description": "Position, sector colours (purple, green, yellow) and last lap of your driver." },
     { "key": "showStatus", "type": "bool", "default": true, "label": "Race status",
       "description": "Yellow flags, VSC, safety car, red flag and the chequered flag." },
+    { "key": "showFormation", "type": "bool", "default": true, "label": "Formation lap",
+      "description": "A FORM chip on the pill while the cars are on the formation lap, with a popup when it starts." },
+    { "key": "showStart", "type": "bool", "default": true, "label": "Lights-out pulse",
+      "description": "A popup and a pulse when the lights go out, and when a race resumes after a red flag." },
     { "key": "showPit", "type": "bool", "default": true, "label": "Pit stop popup",
       "description": "New tyres, stop time and pit lane time when your driver pits." },
     { "key": "showPenalty", "type": "bool", "default": true, "label": "Penalty popup" },

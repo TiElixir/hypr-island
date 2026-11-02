@@ -3,7 +3,8 @@ import qs.core
 
 // F1 live timing. f1feed.py streams the state of the selected driver from
 // F1's live-timing hub; this file only draws it. Each feature (lap times,
-// race status, pit, penalty, position) has its own switch in Settings.
+// race status, formation lap, lights out, pit, penalty, position) has its own
+// switch in Settings.
 //
 //   collapsed   P3 HAM ▮▮▮ 1:21.345        (sector bars: purple / green / yellow)
 //   hover       sector times, last lap, tyre, interval
@@ -105,24 +106,34 @@ Activity {
     // ---- features --------------------------------------------------------------
     readonly property bool lapsOn: option("showLaps") === true
     readonly property bool statusOn: option("showStatus") === true
+    readonly property bool formationOn: option("showFormation") === true
+    readonly property bool startOn: option("showStart") === true
     readonly property bool pitOn: option("showPit") === true
     readonly property bool penaltyOn: option("showPenalty") === true
     readonly property bool positionOn: option("showPosition") === true
     readonly property int popupMs: Math.max(2, Number(option("popupSec")) || 6) * 1000
 
     readonly property bool statusShown: statusOn && onAir && trackCode !== "green"
+    // F1 sends nothing for the formation lap; f1feed.py works it out.
+    readonly property bool formationShown: formationOn && onAir && st.session.formation === true
+    // What the pill's flag chip shows: the track status, else the formation lap.
+    readonly property string chipCode: statusShown ? trackCode : formationShown ? "formation" : ""
+    // The expanded header always shows one.
+    readonly property string headCode: trackCode !== "green" ? trackCode : formationShown ? "formation" : "green"
     readonly property var pit: pitOn && onAir && st && st.pits && st.pits[drvNum] ? st.pits[drvNum] : null
 
     // A short-lived popup: {kind, color, title, sub}. Pit stops have their own,
     // fed live while the stop happens.
     property var popup: null
+    property real popupAt: 0
     readonly property bool popping: popup !== null || pit !== null
 
-    active: onAir && (lapsOn || statusShown) || popping
+    active: onAir && (lapsOn || chipCode !== "") || popping
     urgent: popping
-    accent: popping ? (popup ? popup.color : col.pit) : statusShown ? statusColor(trackCode) : drv ? drv.color : "#E10600"
+    accent: popping ? (popup ? popup.color : col.pit) : chipCode !== "" ? statusColor(chipCode) : drv ? drv.color : "#E10600"
 
     function showPopup(p, ms) {
+        popupAt = Date.now();
         popup = p;
         popupTimer.interval = ms;
         popupTimer.restart();
@@ -141,7 +152,17 @@ Activity {
     }
 
     function handleEvent(e) {
-        if (e._event === "status" && statusOn) {
+        if (e._event === "status" && e.code === "formation") {
+            if (formationOn) {
+                showPopup({ kind: "status", color: statusColor("formation"), title: statusShort("formation"), sub: "Lights out after this lap" }, popupMs);
+                pulse(statusColor("formation"), 2);
+            }
+        } else if (e._event === "start" && startOn) {
+            const laps = st && st.lap[1] > 0 ? st.lap[1] + " laps" : "";
+            const where = st ? st.session.meeting : "";
+            showPopup({ kind: "start", color: col.green, title: e.restart ? "RESTART" : "LIGHTS OUT", sub: e.restart ? "The race resumes" + (e.lap ? " on lap " + e.lap : "") : [where, laps].filter(s => s).join("  ·  ") }, popupMs);
+            pulse(col.green, 3);
+        } else if (e._event === "status" && statusOn) {
             const c = statusColor(e.code);
             const sectors = e.sectors && e.sectors.length ? "Sector " + e.sectors.join(", ") : "";
             showPopup({ kind: "status", color: c, title: statusShort(e.code), sub: e.code === "yellow" ? sectors : e.label }, popupMs);
@@ -181,13 +202,13 @@ Activity {
         return c === "" ? Theme.fg : timingColor(c);
     }
     function statusColor(code) {
-        return ({ green: "#30D158", yellow: "#FFD60A", sc: "#FFB020", vsc: "#FFB020", vscending: "#FFB020", red: "#FF453A", chequered: "#F2F2F7" })[code] || Theme.accent;
+        return ({ green: "#30D158", yellow: "#FFD60A", sc: "#FFB020", vsc: "#FFB020", vscending: "#FFB020", red: "#FF453A", chequered: "#F2F2F7", formation: "#C7C7CC" })[code] || Theme.accent;
     }
     function statusShort(code) {
-        return ({ green: "GREEN FLAG", yellow: "YELLOW FLAG", sc: "SAFETY CAR", vsc: "VIRTUAL SC", vscending: "VSC ENDING", red: "RED FLAG", chequered: "CHEQUERED FLAG" })[code] || code.toUpperCase();
+        return ({ green: "GREEN FLAG", yellow: "YELLOW FLAG", sc: "SAFETY CAR", vsc: "VIRTUAL SC", vscending: "VSC ENDING", red: "RED FLAG", chequered: "CHEQUERED FLAG", formation: "FORMATION LAP" })[code] || code.toUpperCase();
     }
     function statusChip(code) {
-        return ({ yellow: "YEL", sc: "SC", vsc: "VSC", vscending: "VSC", red: "RED", chequered: "FIN" })[code] || "";
+        return ({ yellow: "YEL", sc: "SC", vsc: "VSC", vscending: "VSC", red: "RED", chequered: "FIN", formation: "FORM" })[code] || "";
     }
     function tyreColor(c) {
         return ({ SOFT: "#FF453A", MEDIUM: "#FFD60A", HARD: "#F2F2F7", INTERMEDIATE: "#30D158", WET: "#0A84FF" })[c] || Theme.fgDim;
@@ -212,7 +233,7 @@ Activity {
 
     // ---- sizes ------------------------------------------------------------------------
     readonly property int ch: Config.cfg.sizes.collapsedHeight
-    collapsedSize: popping ? Qt.size(pit !== null || (popup && popup.kind === "penalty") ? 310 : 260, ch + 2) : drv && lapsOn ? Qt.size(statusShown ? 300 : 262, ch + 2) : Qt.size(statusShown ? 170 : 150, ch + 2)
+    collapsedSize: popping ? Qt.size(pit !== null || (popup && popup.kind === "penalty") ? 310 : 260, ch + 2) : drv && lapsOn ? Qt.size(chipCode !== "" ? 300 : 262, ch + 2) : Qt.size(chipCode !== "" ? 170 : 150, ch + 2)
     hoverSize: popping ? Qt.size(360, 62) : drv && lapsOn ? Qt.size(360, 62) : Qt.size(240, 48)
     readonly property bool showPicker: picking !== "" || drv === null
     expandedSize: showPicker ? Qt.size(420, 64 + Math.ceil(Math.max(1, drivers.length + (picking === "2" ? 1 : 0)) / 6) * 30) : Qt.size(420, drv2 ? 232 : 150)
@@ -310,10 +331,54 @@ Activity {
         }
     }
 
+    // The five start lights: red for a moment, then out. Only while the popup
+    // is fresh, so moving between views doesn't replay it.
+    component Lamps: Row {
+        id: lampRow
+        property real lit: 0
+        spacing: 3
+        function play() {
+            if (Date.now() - root.popupAt < 1500)
+                litAnim.restart();
+        }
+        onVisibleChanged: if (visible)
+            play()
+        Component.onCompleted: if (visible)
+            play()
+        SequentialAnimation {
+            id: litAnim
+            PropertyAction {
+                target: lampRow
+                property: "lit"
+                value: 1
+            }
+            PauseAnimation {
+                duration: 300
+            }
+            NumberAnimation {
+                target: lampRow
+                property: "lit"
+                to: 0
+                duration: 160
+                easing.type: Easing.OutQuad
+            }
+        }
+        Repeater {
+            model: 5
+            delegate: Rectangle {
+                width: 9
+                height: 9
+                radius: 4.5
+                color: Qt.tint(Qt.rgba(1, 1, 1, 0.16), Qt.rgba(1, 0.23, 0.19, lampRow.lit))
+            }
+        }
+    }
+
     // Popup content, one line (collapsed) or two (hover).
     component PopupLine: Item {
         property bool twoLines: false
         readonly property var p: root.pit
+        readonly property bool lights: !p && root.popup !== null && root.popup.kind === "start"
         readonly property string tla: root.drv ? root.drv.tla : ""
         readonly property string title: p ? (p.phase === "in" ? "BOX BOX  " + tla : (twoLines ? "PIT STOP  " : "") + tla) : root.popup ? root.popup.title : ""
         // one-line form: the tyre icon on the right shows the compound
@@ -336,8 +401,15 @@ Activity {
             x: 12
             anchors.verticalCenter: parent.twoLines ? undefined : parent.verticalCenter
             y: parent.twoLines ? 12 : 0
+            visible: !parent.lights
             tone: parent.tone
             text: parent.p ? "PIT" : root.popup ? ({ status: "FLAG", penalty: "PEN" })[root.popup.kind] || "F1" : ""
+        }
+        Lamps {
+            id: lamps
+            x: 12
+            anchors.verticalCenter: kind.verticalCenter
+            visible: parent.lights
         }
         Tyre {
             id: tyreIcon
@@ -349,8 +421,8 @@ Activity {
         }
         Text {
             id: ttl
-            anchors.left: kind.right
-            anchors.leftMargin: 8
+            anchors.left: parent.lights ? lamps.right : kind.right
+            anchors.leftMargin: parent.lights ? 10 : 8
             anchors.right: tyreIcon.visible ? tyreIcon.left : parent.right
             anchors.rightMargin: 8
             anchors.verticalCenter: kind.verticalCenter
@@ -392,9 +464,9 @@ Activity {
                     id: flagChip
                     x: 10
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: root.statusShown
-                    tone: root.statusColor(root.trackCode)
-                    text: root.statusChip(root.trackCode)
+                    visible: root.chipCode !== ""
+                    tone: root.statusColor(root.chipCode)
+                    text: root.statusChip(root.chipCode)
                 }
                 DriverTag {
                     id: tag
@@ -427,9 +499,9 @@ Activity {
                     anchors.rightMargin: 12
                     anchors.verticalCenter: parent.verticalCenter
                     horizontalAlignment: flagChip.visible ? Text.AlignLeft : Text.AlignHCenter
-                    text: root.statusShown ? root.statusShort(root.trackCode) : "F1 · pick a driver"
+                    text: root.chipCode !== "" ? root.statusShort(root.chipCode) : "F1 · pick a driver"
                     elide: Text.ElideRight
-                    color: root.statusShown ? root.statusColor(root.trackCode) : Theme.fgDim
+                    color: root.chipCode !== "" ? root.statusColor(root.chipCode) : Theme.fgDim
                     font.family: Theme.font
                     font.pixelSize: Theme.fontSize - 2
                     font.weight: Font.Bold
@@ -459,9 +531,9 @@ Activity {
                     spacing: 8
                     Chip {
                         anchors.verticalCenter: parent.verticalCenter
-                        visible: root.statusShown
-                        tone: root.statusColor(root.trackCode)
-                        text: root.statusChip(root.trackCode)
+                        visible: root.chipCode !== ""
+                        tone: root.statusColor(root.chipCode)
+                        text: root.statusChip(root.chipCode)
                     }
                     Tyre {
                         anchors.verticalCenter: parent.verticalCenter
@@ -511,8 +583,8 @@ Activity {
             Text {
                 anchors.centerIn: parent
                 visible: !root.popping && !(root.drv !== null && root.lapsOn)
-                text: root.statusShown ? root.statusShort(root.trackCode) : "Click to pick your driver"
-                color: root.statusShown ? root.statusColor(root.trackCode) : Theme.fgDim
+                text: root.chipCode !== "" ? root.statusShort(root.chipCode) : "Click to pick your driver"
+                color: root.chipCode !== "" ? root.statusColor(root.chipCode) : Theme.fgDim
                 font.family: Theme.font
                 font.pixelSize: Theme.fontSize
                 font.weight: Font.Bold
@@ -728,9 +800,9 @@ Activity {
                 Chip {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: !root.showPicker
-                    tone: root.statusColor(root.trackCode)
-                    filled: root.trackCode !== "green"
-                    text: root.trackCode === "green" ? "GREEN" : root.statusChip(root.trackCode)
+                    tone: root.statusColor(root.headCode)
+                    filled: root.headCode !== "green"
+                    text: root.headCode === "green" ? "GREEN" : root.statusChip(root.headCode)
                 }
             }
 
@@ -843,8 +915,8 @@ Activity {
         Item {
             Text {
                 anchors.centerIn: parent
-                text: root.statusShown ? root.statusChip(root.trackCode) : root.drv && root.drv.pos ? String(root.drv.pos) : "F1"
-                color: root.statusShown ? root.statusColor(root.trackCode) : root.drv ? root.drv.color : Theme.fg
+                text: root.chipCode !== "" ? root.statusChip(root.chipCode) : root.drv && root.drv.pos ? String(root.drv.pos) : "F1"
+                color: root.chipCode !== "" ? root.statusColor(root.chipCode) : root.drv ? root.drv.color : Theme.fg
                 font.family: Theme.font
                 font.pixelSize: 10
                 font.weight: Font.Black

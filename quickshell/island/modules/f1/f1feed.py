@@ -8,9 +8,9 @@ one JSON object for the module:
 
   {"t":"state", ...}     session, track status and every car's timing, throttled
   {"t":"drivers", ...}   the entry list, when it changes
-  {"_event":"pit"|"penalty"|"position"|"status", ...}   things that just happened,
-                         for every driver (the module picks yours; the island also
-                         emits these as f1.<name> on its bus)
+  {"_event":"pit"|"penalty"|"position"|"status"|"start", ...}   things that just
+                         happened, for every driver (the module picks yours; the
+                         island also emits these as f1.<name> on its bus)
 
 Every car is sent so that choosing a driver in the island is instant and needs
 no reconnect. Option: ISLAND_OPT_SESSIONS ("races" or "all"). The script
@@ -37,6 +37,9 @@ ALL_SESSIONS = os.environ.get("ISLAND_OPT_SESSIONS", "races") == "all"
 TRACK = {"1": ("green", "Track clear"), "2": ("yellow", "Yellow flag"), "4": ("sc", "Safety car"),
          "5": ("red", "Red flag"), "6": ("vsc", "Virtual safety car"), "7": ("vscending", "VSC ending")}
 SEG = {2048: "y", 2049: "g", 2050: "y", 2051: "p", 2052: "y", 2064: "pit"}
+# Formation lap: this many cars timed on track within this many seconds.
+FORMATION_CARS = 3
+FORMATION_WINDOW = 45
 
 
 def log(*a):
@@ -85,6 +88,21 @@ def to_int(v):
         return None
 
 
+def moving(ln):
+    """A car's timing update shows it passing a minisector or a speed trap.
+    Resets (status 0, empty values) don't count."""
+    secs = ln.get("Sectors")
+    for sec in secs.values() if isinstance(secs, dict) else []:
+        if not isinstance(sec, dict):
+            continue
+        segs = sec.get("Segments")
+        if sec.get("Value") or (isinstance(segs, dict) and any(isinstance(g, dict) and to_int(g.get("Status"))
+                                                                for g in segs.values())):
+            return True
+    speeds = ln.get("Speeds")
+    return isinstance(speeds, dict) and any(isinstance(v, dict) and v.get("Value") for v in speeds.values())
+
+
 def utc_of(local, offset):
     """SessionInfo dates are track-local; GmtOffset is like -06:00:00."""
     try:
@@ -106,6 +124,9 @@ class Feed:
         self.prev_pos = {}
         self.prev_inpit = {}
         self.prev_track = None
+        self.prev_status = None
+        self.formation = False
+        self.moved = {}          # car -> when its timing last showed it on track
         self.pits = {}
         self.sectors_flag = {}
         self.drivers_sig = ""
@@ -128,9 +149,15 @@ class Feed:
             return
         with self.lock:
             cur = self.s.setdefault(topic, {})
-            merge(cur, norm(data))
+            diff = norm(data)
+            merge(cur, diff)
             if topic == "RaceControlMessages":
-                self.new_rc(ordered(norm(data).get("Messages")))
+                self.new_rc(ordered(diff.get("Messages")))
+            if topic == "TimingData" and isinstance(diff.get("Lines"), dict):
+                now = time.time()
+                for num, ln in diff["Lines"].items():
+                    if isinstance(ln, dict) and moving(ln):
+                        self.moved[num] = now
             if self.ready:
                 self.analyse(initial=False)
             self.dirty = True
@@ -165,6 +192,22 @@ class Feed:
     def race_running(self):
         return (self.s.get("SessionStatus") or {}).get("Status") in ("Started", "Aborted")
 
+    def start_time(self):
+        si = self.s.get("SessionInfo") or {}
+        return utc_of(si.get("StartDate"), si.get("GmtOffset", "00:00:00"))
+
+    def formation_now(self):
+        """F1 sends nothing for the formation lap: it is a race that hasn't
+        started, past its scheduled start, with cars being timed on track. The
+        start time rules out the reconnaissance laps half an hour earlier."""
+        if self.session_type() != "Race" or (self.s.get("SessionStatus") or {}).get("Status") != "Inactive":
+            return False
+        start = self.start_time()
+        if start is None or dt.datetime.now(dt.timezone.utc) < start - dt.timedelta(minutes=1):
+            return False
+        now = time.time()
+        return sum(1 for t in self.moved.values() if now - t < FORMATION_WINDOW) >= FORMATION_CARS
+
     def live(self):
         """On track now, or within an hour before / half an hour after."""
         si = self.s.get("SessionInfo") or {}
@@ -173,7 +216,7 @@ class Feed:
         if self.race_running():
             return True
         status = (self.s.get("SessionStatus") or {}).get("Status", "")
-        start = utc_of(si.get("StartDate"), si.get("GmtOffset", "00:00:00"))
+        start = self.start_time()
         end = utc_of(si.get("EndDate"), si.get("GmtOffset", "00:00:00"))
         now = dt.datetime.now(dt.timezone.utc)
         if status in ("Finished", "Finalised", "Ends"):
@@ -225,8 +268,21 @@ class Feed:
                 out({"_event": "status", "code": code, "label": label, "sectors": sorted(self.sectors_flag)})
             self.prev_track = ts
 
-        running = self.race_running()
         race = self.session_type() == "Race"
+        # Lights out: a race going from not started (or red-flagged) to started.
+        status = (self.s.get("SessionStatus") or {}).get("Status")
+        if status != self.prev_status:
+            if not initial and race and status == "Started" and self.prev_status in ("Inactive", "Aborted"):
+                out({"_event": "start", "restart": self.prev_status == "Aborted",
+                     "lap": to_int((self.s.get("LapCount") or {}).get("CurrentLap"))})
+            self.prev_status = status
+        form = self.formation_now()
+        if form != self.formation:
+            if form and not initial:
+                out({"_event": "status", "code": "formation", "label": "Formation lap", "sectors": []})
+            self.formation = form
+
+        running = self.race_running()
         now = time.time()
         for num, ln in self.lines().items():
             pos = to_int(ln.get("Position"))
@@ -279,7 +335,8 @@ class Feed:
         st = {"t": "state", "live": self.live(),
               "session": {"type": si.get("Type", ""), "name": si.get("Name", ""),
                           "meeting": (si.get("Meeting") or {}).get("Name", ""),
-                          "status": (self.s.get("SessionStatus") or {}).get("Status", "")},
+                          "status": (self.s.get("SessionStatus") or {}).get("Status", ""),
+                          "formation": self.formation_now()},
               "lap": [to_int(lc.get("CurrentLap")) or 0, to_int(lc.get("TotalLaps")) or 0],
               "track": {"code": code, "label": label, "sectors": sorted(self.sectors_flag, key=lambda x: to_int(x) or 0)},
               "cars": {num: self.car(num, ln) for num, ln in self.lines().items()},
