@@ -191,6 +191,10 @@ island-ctl status | focus <pid> | restart
 `--icon` takes a Nerd Font glyph, an emoji or an absolute image path. `--timeout 0` keeps a card until it
 is cleared or dismissed. Cards are files, so pushing works while the island is stopped.
 
+`config set` takes any JSON value, quoted for the shell:
+`island-ctl config set clock.format '"h:mm AP"'` or
+`island-ctl config set modules.spotify.options.playerPriority '["spotify","*"]'`.
+
 ## Built-in modules
 
 | Module | Priority | What it shows |

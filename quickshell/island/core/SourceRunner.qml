@@ -32,7 +32,10 @@ QtObject {
     function allOptions() {
         const o = {};
         const list = inst.manifest.options || [];
-        const only = Array.isArray(spec.options) ? spec.options : null;
+        // spec reaches us through createObject, which turns its arrays into
+        // Qt sequences: Array.isArray() is false for those.
+        const keys = spec.options;
+        const only = keys !== null && typeof keys === "object" && typeof keys.length === "number" ? Array.from(keys) : null;
         for (let i = 0; i < list.length; i++)
             if (only === null || only.indexOf(list[i].key) >= 0)
                 o[list[i].key] = inst.option(list[i].key);
@@ -53,6 +56,10 @@ QtObject {
     }
     readonly property string optionSignature: JSON.stringify(allOptions())
     onOptionSignatureChanged: restartSoon.restart()
+    // The options the running script was started with.
+    property string launchedSignature: ""
+    // Set while a restart waits for the old process to exit.
+    property bool relaunch: false
     readonly property real pollSec: {
         const fromOption = spec.intervalOption ? Number(inst.option(spec.intervalOption)) : NaN;
         const v = isNaN(fromOption) ? Number(spec.intervalSec) : fromOption;
@@ -68,6 +75,7 @@ QtObject {
             return;
         errLines = 0;
         proc.environment = environmentNow();
+        launchedSignature = optionSignature;
         const cmd = spec.command || [];
         if (cmd.length === 0) {
             setStatus("error: no command");
@@ -79,15 +87,24 @@ QtObject {
     }
 
     function start() {
-        stopProc();
+        restartTimer.stop();
+        pollTimer.stop();
         desired = true;
         backoff = 0;
-        launch();
+        if (proc.running) {
+            // The old process takes a moment to go: start the new one when it
+            // has exited, instead of reading that exit as a crash.
+            relaunch = true;
+            proc.running = false;
+        } else {
+            launch();
+        }
         if (mode === "poll")
             pollTimer.restart();
     }
 
     function stopProc() {
+        relaunch = false;
         restartTimer.stop();
         pollTimer.stop();
         if (proc.running)
@@ -118,6 +135,12 @@ QtObject {
     }
 
     function exited(code) {
+        if (relaunch) {
+            relaunch = false;
+            restartTimer.interval = 0;
+            restartTimer.restart();
+            return;
+        }
         if (!desired)
             return;
         if (mode === "poll") {
@@ -153,7 +176,9 @@ QtObject {
     }
     property Timer restartSoon: Timer {
         interval: 600
-        onTriggered: if (sr.desired)
+        // Only when the options really differ from what the script runs with
+        // (the signature also settles once while the module is created).
+        onTriggered: if (sr.desired && sr.optionSignature !== sr.launchedSignature)
             sr.start()
     }
 

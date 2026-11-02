@@ -170,18 +170,20 @@ cmd_module() {
   esac
 }
 
+# qs ipc reads an argument that starts with "[" as a list: ["a","b"] becomes
+# two arguments and ["a"] becomes "a". A leading space keeps JSON intact.
 cmd_emit() {
   running
   [ -n "${1:-}" ] || die "emit: need an event name"
   [[ "$1" =~ ^[A-Za-z0-9_.-]+$ ]] || die "emit: bad event name"
-  qsipc emit "$1" "${2:-{\}}"
+  qsipc emit "$1" " ${2:-{\}}"
 }
 
 cmd_config() {
   running
   case "${1:-}" in
     get) qsipc config "${2:-}" ;;
-    set) [ -n "${2:-}" ] && [ -n "${3:-}" ] || die "config set: need PATH and JSON (strings need quotes: '\"text\"')"; qsipc configSet "$2" "$3" ;;
+    set) [ -n "${2:-}" ] && [ -n "${3:-}" ] || die "config set: need PATH and JSON (strings need quotes: '\"text\"')"; qsipc configSet "$2" " $3" ;;
     reset) [ -n "${2:-}" ] || die "config reset: need PATH"; qsipc configReset "$2" ;;
     *) die "config: use get [PATH] | set PATH JSON | reset PATH" ;;
   esac
