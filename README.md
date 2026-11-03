@@ -11,8 +11,96 @@ without touching this repository.
 
 Tested on Arch Linux with Hyprland 0.56.2, Quickshell 0.3.1 and Qt 6.11.
 
+<p align="center">
+  <img src="docs/screenshots/spotify-expanded.png" width="672" alt="Expanded island: Seven Nation Army by The White Stripes, with album art, progress and transport controls">
+</p>
+
+## Showcase
+
+Every image below is drawn at the same scale, 1.5 times the size it has on a 1080p screen, so a
+collapsed pill stays as small next to an expanded view as it is on the desktop. Music is a real Spotify
+session; the F1, Discord, Claude and card shots use sample data.
+
+**One pill, three states.** Collapsed in the bar, a summary on hover, the full view when clicked.
+
+<p align="center">
+  <img src="docs/screenshots/spotify-collapsed.png" width="103" alt="Collapsed: album art inside a progress ring">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/spotify-hover.png" width="548" alt="Hover: title, artist and progress bar">
+</p>
+
+**F1 live timing.** Position, sector colours and last lap on the pill; minisectors, tyres and gaps for
+two drivers when expanded.
+
+<p align="center">
+  <img src="docs/screenshots/f1-collapsed.png" width="412" alt="P2 VER with sector bars and a purple last lap">
+</p>
+<p align="center">
+  <img src="docs/screenshots/f1-expanded.png" width="714" alt="Expanded F1 view: VER and LEC with minisectors, sector times, last and best lap, tyre and gap">
+</p>
+
+Race events take over the island for a few seconds: safety car, lights out, pit stops, penalties, and
+a coloured ring when your driver gains or loses a place.
+
+<p align="center">
+  <img src="docs/screenshots/f1-safety-car-chip.png" width="469" alt="SC chip on the pill">
+  &nbsp;
+  <img src="docs/screenshots/f1-lights-out.png" width="409" alt="Lights out popup with five start lights">
+</p>
+<p align="center">
+  <img src="docs/screenshots/f1-pit-stop.png" width="484" alt="Pit stop: new hard tyres, 2.1 s stop, pit lane time">
+  &nbsp;
+  <img src="docs/screenshots/f1-penalty.png" width="484" alt="Penalty: HAM 5s penalty">
+</p>
+<p align="center">
+  <img src="docs/screenshots/f1-position-gained.png" width="412" alt="Green ring and up-arrow badge after gaining a place">
+</p>
+
+**Discord call.** Call length on the pill, who is in the channel (and who is talking) on hover, and
+mic, deafen, camera and leave when expanded.
+
+<p align="center">
+  <img src="docs/screenshots/discord-collapsed.png" width="163" alt="Mic icon and call length">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/discord-hover.png" width="578" alt="Channel name, server and participant avatars">
+</p>
+<p align="center">
+  <img src="docs/screenshots/discord-expanded.png" width="672" alt="Expanded call: participants with mute badges and four control buttons">
+</p>
+
+**Claude Code sessions.** Orange while working, red when a session needs you, green when it is done;
+expanded, every session with its state and how long it has been in it.
+
+<p align="center">
+  <img src="docs/screenshots/claude-working.png" width="85" alt="Working: orange dot">
+  &nbsp;
+  <img src="docs/screenshots/claude-needs-you.png" width="85" alt="Needs you: red dot">
+  &nbsp;
+  <img src="docs/screenshots/claude-done.png" width="85" alt="Done: green dot">
+</p>
+<p align="center">
+  <img src="docs/screenshots/claude-multi-expanded.png" width="668" alt="Four Claude Code sessions: needs you, working, working, done">
+</p>
+
+**Two things at once.** The runner-up becomes a bubble beside the pill; click it to swap.
+
+<p align="center">
+  <img src="docs/screenshots/split-spotify-and-claude.png" width="154" alt="Spotify pill with a Claude bubble">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/split-f1-and-spotify.png" width="463" alt="F1 pill with a Spotify bubble">
+</p>
+
+**Cards from any script.** `island-ctl push` shows a title, icon and optional progress bar.
+
+<p align="center">
+  <img src="docs/screenshots/card-collapsed.png" width="264" alt="Card collapsed: Building kernel">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/card-expanded.png" width="594" alt="Card expanded with subtitle and a 64% progress bar">
+</p>
+
 ## Contents
 
+- [Showcase](#showcase)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
