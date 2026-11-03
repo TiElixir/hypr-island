@@ -1,0 +1,33 @@
+{
+  "id": "discord",
+  "name": "Discord call",
+  "description": "Your current Discord voice call: its length on the pill, channel and participants on hover, and mic, deafen, camera and leave controls when expanded.",
+  "version": "1.0",
+  "entry": "module.qml",
+  "priority": 64,
+  "defaultEnabled": false,
+  "emits": {
+    "discord.join": "You joined a voice channel or call (channel, guild, kind)",
+    "discord.leave": "You left it (channel, guild, seconds)",
+    "discord.voice": "Your mic or deafen state changed (mute, deaf)"
+  },
+  "source": {
+    "command": ["python3", "-u", "discordfeed.py"],
+    "mode": "stream",
+    "restartSec": 5,
+    "stdin": true,
+    "options": ["clientId", "clientSecret", "redirectUri"]
+  },
+  "options": [
+    { "key": "clientId", "type": "string", "default": "", "label": "Application ID",
+      "description": "From a free app you create at discord.com/developers/applications (see the README, Discord call). Discord only lets an app control your client." },
+    { "key": "clientSecret", "type": "string", "default": "", "label": "Client secret",
+      "description": "The app's OAuth2 client secret. Stored in config.json as plain text." },
+    { "key": "redirectUri", "type": "string", "default": "http://localhost", "label": "Redirect URI",
+      "description": "Must be listed under OAuth2 > Redirects in the app. Nothing is ever opened there." },
+    { "key": "cameraShortcut", "type": "string", "default": "", "label": "Camera shortcut",
+      "description": "Discord cannot switch the camera over its local API, so the island presses the key you bound to it in Discord (Settings > Keybinds), e.g. CTRL SHIFT, V. Empty hides the camera button." },
+    { "key": "windowClass", "type": "string", "default": "discord", "label": "Discord window class",
+      "description": "Which window receives the camera shortcut: its class, as island-ctl windows shows it." }
+  ]
+}

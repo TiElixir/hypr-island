@@ -20,6 +20,7 @@ Tested on Arch Linux with Hyprland 0.56.2, Quickshell 0.3.1 and Qt 6.11.
 - [Usage](#usage)
 - [Built-in modules](#built-in-modules)
   - [F1 live timing](#f1-live-timing)
+  - [Discord call](#discord-call)
 - [Configuration](#configuration)
 - [Extending Island](#extending-island)
   - [Writing a module](#writing-a-module)
@@ -91,11 +92,12 @@ and press Enter to keep the list:
 ```
 modules
     1 [x] Claude Code              Status of your Claude Code sessions
-    2 [x] Cards (island-ctl push)  Temporary cards pushed by any script with island-ctl push
-    3 [ ] F1 Live                  Live race timing for your driver from F1's free live-timing feed
-    4 [x] Music (MPRIS)            Now playing from Spotify or any MPRIS player
-    5 [ ] Active window            Flashes the focused window's app and title when focus changes
-  numbers to tick or untick, Enter when done: 3
+    2 [ ] Discord call             Your current Discord voice call
+    3 [x] Cards (island-ctl push)  Temporary cards pushed by any script with island-ctl push
+    4 [ ] F1 Live                  Live race timing for your driver from F1's free live-timing feed
+    5 [x] Music (MPRIS)            Now playing from Spotify or any MPRIS player
+    6 [ ] Active window            Flashes the focused window's app and title when focus changes
+  numbers to tick or untick, Enter when done: 4
 ```
 
 A module you leave out is never loaded and does not show up in Settings. Its settings are kept, so it comes
@@ -204,6 +206,7 @@ is cleared or dismissed. Cards are files, so pushing works while the island is s
 | **Cards** (`external`) | 70 | Temporary cards pushed with `island-ctl push`, with optional progress bar |
 | **Active window** (`windowfocus`) | 62 | Flashes the focused window's app and title when focus changes; lists every open window when expanded. Off by default |
 | **F1 Live** (`f1`) | 66 | Live race timing for your driver: sector colours, race status, formation lap and lights out, pit stops, penalties, position changes. Off by default. See [F1 live timing](#f1-live-timing) |
+| **Discord call** (`discord`) | 64 | Your current voice call: its length on the pill, channel and participants on hover, mic, deafen, camera and leave when expanded. Off by default, needs a one-time setup. See [Discord call](#discord-call) |
 
 The clock is not a module; see [Configuration](#configuration). The installer lets you leave out any of
 these; see [Choosing modules](#choosing-modules).
@@ -245,6 +248,49 @@ start don't count, and an extra formation lap shows the same way.
 The feed is unofficial and undocumented; if F1 changes it, the module shows nothing until it is updated.
 Stop times come from F1's pit-stop feed, which is not published for every race; the popup then shows the
 lane time only.
+
+### Discord call
+
+While you are in a Discord voice channel or call, the island shows it:
+
+| State | What you see |
+|---|---|
+| Collapsed | A mic icon (red and slashed while you are muted or deafened) and how long the call has lasted |
+| Hover | The channel name, the server and head count, and the participants' avatars (a green ring while someone talks) |
+| Expanded | Everyone with their name, mute and deafen badges, and the controls: **mic**, **deafen**, **camera** and **leave** |
+
+The mic and deafen buttons follow Discord's real state, so they stay right when you use Discord's own
+buttons or keybinds. Clicking the mic while deafened undeafens, like Discord's own. Nothing is shown outside
+a call.
+
+**Setup.** Discord only lets an application you registered talk to your client, so there is a one-time step
+(a free developer app; nothing is published):
+
+1. Create an application at <https://discord.com/developers/applications>.
+2. Under **OAuth2**, copy the **Client ID** and reset and copy the **Client Secret**, and add
+   `http://localhost` under **Redirects** (nothing is ever opened there).
+3. Tick **Discord call** in the installer (`scripts/install.sh modules`), or enable it in Settings > Modules
+   (`island-ctl module enable discord`), and enter the ID and secret there. The secret is stored in
+   `config.json` as plain text.
+4. With Discord running, the island shows *Approve Island in Discord*. Press **Authorize** in the Discord
+   window. This happens once. The login is kept in `~/.config/island/discord-token.json` (mode 600); delete
+   that file to authorise again, or revoke it under Discord's *Authorized Apps*. If Discord refuses the
+   `rpc` scope, add your own account under the app's **App Testers**.
+
+**Camera.** Discord's local API has no camera control, so the camera button presses the key you bound to it
+instead. Bind one in Discord (*User Settings > Keybinds*, if your client offers a camera action), enter it
+as **Camera shortcut** (`CTRL SHIFT, V` or `CTRL+SHIFT+V`), and the island sends it to the Discord window
+with Hyprland's `sendshortcut`, focused or not. **Discord window class** picks the window (`discord`;
+`island-ctl windows` shows yours). While the shortcut is empty the camera button is hidden. The button has
+no on/off state, because Discord does not report the camera.
+
+Discord does not say when a call began, so the length counts from when you joined it while the island was
+running. If the island restarts, it keeps counting from the same start when it comes back within two minutes.
+The module's script (`modules/discord/discordfeed.py`, Python standard library only) looks for Discord's
+socket every 5 s while Discord is not running, and is otherwise driven by Discord's events. The official
+client, its Flatpak and its Snap are looked for; Vesktop and other clients without Discord's own RPC server
+do not work. Events for hooks: `discord.join`, `discord.leave` (with `seconds`) and `discord.voice` (`mute`,
+`deaf`).
 
 ## Configuration
 
@@ -389,6 +435,7 @@ plumbing.
   "intervalSec": 30,                    // or "intervalOption": "pollSec" to use a module option
   "timeoutSec": 20,                     // poll mode
   "restartSec": 5,                      // stream mode: restart delay, backs off on repeated failure
+  "stdin": true,                        // stream mode: let the module write to the script (sourceWrite)
   "options": ["pollSec"]                // optional: only these options are passed (and restart it)
 }
 ```
@@ -402,6 +449,8 @@ plumbing.
   island's log.
 - `sourceStatus` is `running`, `ok`, `error: ...`, or `exited (code), restarting in Ns`; Settings shows it
   on the module's card.
+- With `"stdin": true` (stream mode) the module can talk back: `sourceWrite("...\n")` writes to the script's
+  stdin, one command per line. The Discord module sends its mic, deafen and leave commands this way.
 
 ### Window data
 
@@ -485,7 +534,7 @@ quickshell/island/
 ├── shell.qml            wiring and IPC
 ├── core/                island window, pill, config, theme, events, hooks, module manager, windows service
 │   └── shaders/         body.frag (+ compiled .qsb): the pill's outline and fill
-├── modules/             built-in modules: claude, spotify, external, windowfocus, f1
+├── modules/             built-in modules: claude, spotify, external, windowfocus, f1, discord
 ├── components/          shared widgets for modules
 └── settings/            the Settings panel
 bin/island-ctl           command line interface
@@ -510,7 +559,8 @@ Island is built for a 144 Hz display on an integrated GPU, where a frame is 6.9 
   expanded view otherwise). Everything in it is composited, and with a blur rule blurred, on every frame of
   an animation. It resizes on mode changes, never mid-animation.
 - The spring settles quickly (`spring.damping`, `spring.epsilon`), so the compositor stops redrawing sooner.
-- Nothing runs while idle apart from the clock's own tick.
+- Nothing runs while idle apart from the clock's own tick. (With the Discord module on, its script also looks
+  for Discord's socket every 5 s while Discord is closed.)
 
 Measured on the development machine (six expand and collapse cycles, blur on): island CPU use fell from
 9.0% to 6.5%. Hyprland's own cost stays near 9% because a translucent island needs the blur on every frame.
@@ -550,6 +600,9 @@ or run `island-ctl restart`); and `scripts/build-shaders.sh` must be re-run afte
   Modules names it. Add it with `scripts/install.sh modules`.
 - **My module is not listed.** Run `island-ctl reload`, then look for an error card in Settings > Modules
   (invalid manifest, duplicate id, QML error). `tests/manifest-test.sh <dir>` explains manifest problems.
+- **Discord shows nothing.** The pill only appears while you are in a call. Run `island-ctl modules`: the
+  script status says whether it runs, and the island shows why when the ID or secret is missing or refused.
+  Discord must be running, and the app's redirect must list exactly the *Redirect URI* in the module's settings.
 - **A hook never runs.** It must be executable, in a folder named exactly like the event, and not switched
   off in Settings > Hooks, where its last failure is also shown.
 - **Claude never lights up.** Hooks apply to sessions started after `scripts/install.sh claude`. Check

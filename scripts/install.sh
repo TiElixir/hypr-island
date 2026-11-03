@@ -8,7 +8,7 @@
 #          (default: links config modules hypr waybar)
 #
 # The modules step asks which built-in modules to install. --modules answers
-# for it: comma-separated ids (spotify,claude,external,windowfocus,f1), all or none.
+# for it: comma-separated ids (spotify,claude,external,windowfocus,f1,discord), all or none.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
