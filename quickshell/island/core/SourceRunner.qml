@@ -9,6 +9,7 @@ import Quickshell.Io
 // mode "stream" (default): one long-running process, restarted with back-off
 //   when it exits. mode "poll": run the command every intervalSec (or the value
 //   of the module option named by "intervalOption"), with a timeout.
+// With "stdin": true (stream mode) the module can talk back: inst.sourceWrite(text).
 // Every stdout line that is a JSON object becomes inst.sourceMessage(obj) and
 // inst.sourceData. A line like {"_event":"lap","n":3} also emits "<module>.lap"
 // on the event bus. Anything else on stdout arrives as {text: "..."}.
@@ -75,6 +76,7 @@ QtObject {
             return;
         errLines = 0;
         proc.environment = environmentNow();
+        proc.stdinEnabled = mode === "stream" && spec.stdin === true;
         launchedSignature = optionSignature;
         const cmd = spec.command || [];
         if (cmd.length === 0) {
@@ -132,6 +134,15 @@ QtObject {
         inst.sourceMessage(msg);
         if (typeof msg._event === "string" && /^[A-Za-z0-9_.-]+$/.test(msg._event))
             inst.emit(msg._event, msg);
+    }
+
+    // inst.sourceWrite(text) goes to the script's stdin, when the source asks for it.
+    property Connections writer: Connections {
+        target: sr.inst
+        function onSourceWrite(text) {
+            if (proc.running && proc.stdinEnabled)
+                proc.write(text);
+        }
     }
 
     function exited(code) {

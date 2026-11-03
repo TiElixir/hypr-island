@@ -97,6 +97,9 @@ QtObject {
     property var sourceData: null
     property string sourceStatus: "off"
     signal sourceMessage(var msg)
+    // Write text to the source script's stdin ("stdin": true in the manifest's
+    // source). Add the newline yourself; a script reading lines needs it.
+    signal sourceWrite(string text)
 
     // ---- activity -> host -------------------------------------------------
     // Ask the island to promote this activity now and pulse.
